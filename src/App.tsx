@@ -13,7 +13,7 @@ import { VoiceCall } from './voiceCall'
 import type { VoiceCallEvent } from './voiceCall'
 import { getFirebaseAuth } from './firebaseApp'
 import { where } from 'firebase/firestore'
-import { isInServiceArea, isInServiceBBox, OUT_OF_AREA_MESSAGE, OUT_OF_AREA_TITLE, SERVICE_PLACES } from './geo'
+import { isInServiceArea, isInServiceBBox, OUT_OF_AREA_MESSAGE, OUT_OF_AREA_TITLE } from './geo'
 import { sendOtpCode, toE164Phone, verifyOtpCode } from './otp'
 import {
   ADMIN_PHONES,
@@ -2286,19 +2286,6 @@ export default function App() {
     }
   }
 
-  /** (v2) أماكن سريعة — الضغطة على chip تملأ الحقل وتحرك الخريطة من غير بحث ولا نت. */
-  function pickPlace(which: 'pickup' | 'destination', place: { label: string; lat: number; lng: number }) {
-    const ll: LatLng = { lat: place.lat, lng: place.lng, label: place.label }
-    if (which === 'pickup') {
-      setPickup(ll)
-      setPickupLabel(place.label)
-      setPickupSugg([])
-    } else {
-      setDestination(ll)
-      setDestLabel(place.label)
-      setDestSugg([])
-    }
-  }
 
   // الكباتن المتاحين على خريطة العميل — أونلاين ومشاركين موقعهم
   const onlineDrivers = useMemo(
@@ -2543,13 +2530,7 @@ export default function App() {
     <>
       {activeRide ? (
         <>
-          <div className="ride-status-strip">
-            <b>رحلتك — {activeRide.orderNo}</b>
-            <span className="muted">{rideStatusLabel(activeRide.status)}</span>
-            <span className="spacer" />
-            <b>{money(activeRide.fare)}</b>
-          </div>
-          <div className="map-panel">
+          <div className="map-hero-full">
             <MapView
               height="46vh"
               pickup={activeRide.pickup}
@@ -2560,7 +2541,10 @@ export default function App() {
               onPick={() => {}}
             />
           </div>
-          <div className="card">
+          <div className="card bottom-sheet">
+            <div className="sheet-handle" />
+            <h2><span className="icon-chip"><IconUser /></span>رحلتك — {activeRide.orderNo}</h2>
+            <p><b>{rideStatusLabel(activeRide.status)}</b></p>
             {rideTimes(activeRide)}
             {activeRide.status === 'searching' && (
               <>
@@ -2636,19 +2620,32 @@ export default function App() {
         </>
       ) : (
         <>
-          <div className="svc-pills">
-            {(['ride_tuktuk', 'ride_motorcycle', 'delivery', 'restaurant'] as ServiceKind[]).map((k) => (
-              <button key={k} className={serviceKind === k ? 'svc-pill on' : 'svc-pill'} onClick={() => { setServiceKind(k); setSelectedRestaurantId(null); setCart({}) }}>{SERVICE_LABELS[k]}</button>
-            ))}
+          <div className="map-hero-full">
+            <MapView
+              height="54vh"
+              pickup={pickup}
+              destination={destination}
+              driver={null}
+              drivers={onlineDrivers}
+              pickMode={pickMode}
+              onPick={onMapPick}
+            />
           </div>
-          <p className="muted">الدفع كاش عند الاستلام 💵 — {serviceKind === 'delivery' ? 'دليفري بالموتوسيكل من أي محل أو صيدلية' : serviceKind === 'restaurant' ? 'اطلب من مطاعم كفر حكيم وكرداسة وأبو رواش' : 'السعر بالاتفاق مع الكابتن'}</p>
-          {serviceKind === 'restaurant' ? (
-            restaurantBrowser
-          ) : (
-            <div className="route-card">
-            <div className="rt-row">
-              <div className="rt-dot-col"><span className="rt-dot green" /><span className="rt-connector" /></div>
-              <div className="rt-field">
+          <div className="card bottom-sheet">
+            <div className="sheet-handle" />
+            <h2><span className="icon-chip"><IconUser /></span>اطلب — دليفري كفر حكيم</h2>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              {(['ride_tuktuk', 'ride_motorcycle', 'delivery', 'restaurant'] as ServiceKind[]).map((k) => (
+                <button key={k} className={serviceKind === k ? 'btn' : 'btn small'} onClick={() => { setServiceKind(k); setSelectedRestaurantId(null); setCart({}) }}>{SERVICE_LABELS[k]}</button>
+              ))}
+            </div>
+            <p className="muted">الدفع كاش عند الاستلام 💵 — {serviceKind === 'delivery' ? 'دليفري بالموتوسيكل من أي محل أو صيدلية' : serviceKind === 'restaurant' ? 'اطلب من مطاعم كفر حكيم وكرداسة وأبو رواش' : 'السعر بالاتفاق مع الكابتن'}</p>
+            {serviceKind === 'restaurant' ? (
+              restaurantBrowser
+            ) : (
+            <>
+            <div className="grid">
+            <div>
               <label>{serviceKind === 'delivery' ? 'هتجيب منين؟ (اسم المحل / الصيدلية)' : 'نقطة الركوب'}</label>
               <div className="suggest-wrap">
                 <input className="field-input" placeholder={pickup && pickup.label === 'موقعي الحالي' ? 'موقعي الحالي' : 'منين؟'} value={pickupLabel} onChange={(e) => { setPickupLabel(e.target.value); if (pickup && pickup.label === 'موقعي الحالي') setPickup(null) }} onBlur={() => setPickupSugg([])} />
@@ -2665,20 +2662,12 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="rt-actions">
+              <div className="row">
                 <button className="btn small" onClick={() => useMyLocation('pickup')}><IconPin /> موقعي الحالي</button>
                 <button className={pickMode === 'pickup' ? 'btn small active' : 'btn small'} onClick={() => setPickMode('pickup')}>حدّد على الخريطة</button>
               </div>
-              <div className="row" style={{ flexWrap: 'wrap' }}>
-                {SERVICE_PLACES.map((p) => (
-                  <button key={p.label} type="button" className="btn small soft" onClick={() => pickPlace('pickup', p)}>📍 {p.label}</button>
-                ))}
-              </div>
-              </div>
             </div>
-            <div className="rt-row">
-              <div className="rt-dot-col"><span className="rt-dot red" /></div>
-              <div className="rt-field">
+            <div>
               <label>{serviceKind === 'delivery' ? 'التوصيل فين؟' : 'الوجهة'}</label>
               <div className="suggest-wrap">
                 <input className="field-input" placeholder={destination && destination.label === 'موقعي الحالي' ? 'موقعي الحالي' : 'رايح فين؟'} value={destLabel} onChange={(e) => { setDestLabel(e.target.value); if (destination && destination.label === 'موقعي الحالي') setDestination(null) }} onBlur={() => setDestSugg([])} />
@@ -2695,61 +2684,44 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="rt-actions">
+              <div className="row">
                 <button className="btn small" onClick={() => useMyLocation('destination')}><IconPin /> موقعي الحالي</button>
                 <button className={pickMode === 'destination' ? 'btn small active' : 'btn small'} onClick={() => setPickMode('destination')}>حدّد على الخريطة</button>
               </div>
-              <div className="row" style={{ flexWrap: 'wrap' }}>
-                {SERVICE_PLACES.map((p) => (
-                  <button key={p.label} type="button" className="btn small soft" onClick={() => pickPlace('destination', p)}>📍 {p.label}</button>
-                ))}
-              </div>
-              </div>
             </div>
-            {serviceKind === 'delivery' && (
-              <div>
-                <label>هاتلي إيه؟</label>
-                <input className="field-input" placeholder="مثال: دوا من صيدلية النور، أو 2 كيلو طماطم من محل الخضار…" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} />
-              </div>
-            )}
-            </div>
-          )}
-          <div className="map-panel">
-            <MapView
-              height="38vh"
-              pickup={pickup}
-              destination={destination}
-              driver={null}
-              drivers={onlineDrivers}
-              pickMode={pickMode}
-              onPick={onMapPick}
-            />
           </div>
-          {serviceKind !== 'restaurant' && (
-            <>
-              <p className="muted">دوس على الخريطة لتحديد {pickMode === 'pickup' ? 'نقطة الركوب' : pickMode === 'destination' ? 'الوجهة' : '—'} — أو استخدم زرار «موقعي الحالي».</p>
-              <h3><span className="icon-chip sm"><IconWallet /></span>{serviceKind === 'delivery' ? 'أجرة التوصيل' : 'سعر المشوار'}</h3>
-              <div className="fare-stepper">
-                <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.max(FARE_MIN, fare - 5))) }}>−</button>
-                <input
-                  className="fare-number"
-                  inputMode="numeric"
-                  value={fareText}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/[^0-9]/g, '')
-                    fareTouchedRef.current = true
-                    setFareText(v)
-                  }}
-                  onBlur={() => setFareText(String(fare))}
-                  aria-label="سعر المشوار"
-                />
-                <span className="fare-unit">جنيه</span>
-                <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
-              </div>
-              <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
-              <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <><IconPin /> {serviceKind === 'delivery' ? 'اطلب دليفري' : serviceKind === 'ride_motorcycle' ? 'اطلب موتوسيكل' : 'اطلب توكتوك'} — {money(fare)}</>}</button>
-            </>
+
+          {serviceKind === 'delivery' && (
+            <div>
+              <label>هاتلي إيه؟</label>
+              <input className="field-input" placeholder="مثال: دوا من صيدلية النور، أو 2 كيلو طماطم من محل الخضار…" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} />
+            </div>
           )}
+          <p className="muted">دوس على الخريطة لتحديد {pickMode === 'pickup' ? 'نقطة الركوب' : pickMode === 'destination' ? 'الوجهة' : '—'} — أو استخدم زرار «موقعي الحالي».</p>
+
+          <h3><span className="icon-chip sm"><IconWallet /></span>{serviceKind === 'delivery' ? 'أجرة التوصيل' : 'سعر المشوار'}</h3>
+          <div className="fare-stepper">
+            <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.max(FARE_MIN, fare - 5))) }}>−</button>
+            <input
+              className="fare-number"
+              inputMode="numeric"
+              value={fareText}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9]/g, '')
+                fareTouchedRef.current = true
+                setFareText(v)
+              }}
+              onBlur={() => setFareText(String(fare))}
+              aria-label="سعر المشوار"
+            />
+            <span className="fare-unit">جنيه</span>
+            <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
+          </div>
+          <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
+          <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <><IconPin /> {serviceKind === 'delivery' ? 'اطلب دليفري' : serviceKind === 'ride_motorcycle' ? 'اطلب موتوسيكل' : 'اطلب توكتوك'} — {money(fare)}</>}</button>
+            </>
+            )}
+          </div>
         </>
       )}
     </>

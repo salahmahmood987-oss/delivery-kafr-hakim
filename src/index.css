@@ -285,30 +285,3 @@ label { font-weight: 700; font-size: 14px; }
 @media (max-width: 380px) { .otp-box { width: 42px; height: 54px; font-size: 24px; } }
 .auth-phone-line { text-align: center; font-weight: 800; font-size: 16px; margin: 0 0 4px; direction: ltr; }
 .auth-resend { text-align: center; }
-
-/* ===== الشاشة الرئيسية للعميل — تكوين جديد (v4): النموذج أولاً والخريطة تحته ===== */
-/* حبوب الخدمات: شريط أفقي قابل للتمرير فوق النموذج، بدل صف أزرار جوّه الكارت */
-.svc-pills { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 12px; scrollbar-width: none; }
-.svc-pills::-webkit-scrollbar { display: none; }
-.svc-pill { flex-shrink: 0; border-radius: 999px; padding: 11px 18px; font-size: 15px; font-weight: 800; font-family: inherit; cursor: pointer; border: 1.5px solid #DCE3E8; background: linear-gradient(180deg, #fff, #F4F6F8); color: #475569; box-shadow: 0 1px 0 rgba(255,255,255,.95) inset, 0 -3px 0 rgba(15,23,42,.08) inset, 0 5px 12px rgba(15,23,42,.10); }
-.svc-pill:active { transform: translateY(2px); }
-.svc-pill.on { background: linear-gradient(180deg, #14507E, #0B2B4B 60%, #061A2E); color: #FFC531; border-color: #061A2E; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 -3px 0 rgba(6,26,46,.4) inset, 0 8px 18px rgba(11,43,75,.4); }
-/* كارت المسار: خط زمني عمودي (نقطة خضرا ← خط متقطع ← نقطة حمرا) بدل عمودين جنب بعض */
-.route-card { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow-3d); }
-.rt-row { display: flex; gap: 12px; align-items: flex-start; }
-.rt-dot-col { display: flex; flex-direction: column; align-items: center; align-self: stretch; flex-shrink: 0; padding-top: 14px; }
-.rt-dot { width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(15,23,42,.25); flex-shrink: 0; }
-.rt-dot.green { background: #16a34a; }
-.rt-dot.red { background: #dc2626; }
-.rt-connector { width: 3px; flex: 1; min-height: 30px; background: repeating-linear-gradient(180deg, #CBD5E1 0 5px, transparent 5px 10px); margin: 3px 0; }
-.rt-field { flex: 1; min-width: 0; }
-.rt-field label { display: block; margin-bottom: 2px; }
-.rt-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-/* لوحة الخريطة: مستطيل مدوّر تحت النموذج، مش هيرو بملء العرض فوق */
-.map-panel { border: 2px solid #fff; outline: 1px solid var(--line); border-radius: 20px; overflow: hidden; margin: 0 0 14px; box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 20px 40px rgba(15,23,42,.18), 0 6px 14px rgba(15,23,42,.12); }
-.map-panel .map-box { border: none; outline: none; border-radius: 0; margin: 0; box-shadow: none; }
-/* شريط حالة الرحلة: بانر كحلي فوق الخريطة بدل عنوان جوّه الشيت */
-.ride-status-strip { display: flex; align-items: center; gap: 10px; background: linear-gradient(180deg, #14507E, #0B2B4B); color: #fff; border-radius: 18px; padding: 14px 16px; margin: 4px 0 12px; box-shadow: 0 1px 0 rgba(255,255,255,.35) inset, 0 -3px 0 rgba(6,26,46,.4) inset, 0 10px 22px rgba(11,43,75,.35); }
-.ride-status-strip b { font-size: 17px; }
-.ride-status-strip .muted { color: #C9DCEF; }
-.ride-status-strip .spacer { flex: 1; }
