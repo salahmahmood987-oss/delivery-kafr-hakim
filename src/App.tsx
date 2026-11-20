@@ -479,6 +479,17 @@ export default function App() {
   const [otpSent, setOtpSent] = useState(false)
   const [otpInput, setOtpInput] = useState('')
   const [otpBusy, setOtpBusy] = useState(false)
+  // (v4) صناديق الكود: 6 خانات منفصلة بدل حقل واحد — كل خانة رقم واحد
+  const otpBoxRefs = useRef<Array<HTMLInputElement | null>>([])
+  function setOtpDigit(idx: number, raw: string) {
+    const d = raw.replace(/[^0-9]/g, '').slice(-1)
+    if (!d) {
+      if (otpInput.length > idx) setOtpInput(otpInput.slice(0, idx) + otpInput.slice(idx + 1))
+      return
+    }
+    setOtpInput((otpInput.slice(0, idx) + d + otpInput.slice(idx + 1)).slice(0, 6))
+    if (idx < 5) otpBoxRefs.current[idx + 1]?.focus()
+  }
   // السواق
   const [payAmount, setPayAmount] = useState('')
   const [payShot, setPayShot] = useState<File | null>(null)
@@ -2532,7 +2543,13 @@ export default function App() {
     <>
       {activeRide ? (
         <>
-          <div className="map-hero-full">
+          <div className="ride-status-strip">
+            <b>رحلتك — {activeRide.orderNo}</b>
+            <span className="muted">{rideStatusLabel(activeRide.status)}</span>
+            <span className="spacer" />
+            <b>{money(activeRide.fare)}</b>
+          </div>
+          <div className="map-panel">
             <MapView
               height="46vh"
               pickup={activeRide.pickup}
@@ -2543,10 +2560,7 @@ export default function App() {
               onPick={() => {}}
             />
           </div>
-          <div className="card bottom-sheet">
-            <div className="sheet-handle" />
-            <h2><span className="icon-chip"><IconUser /></span>رحلتك — {activeRide.orderNo}</h2>
-            <p><b>{rideStatusLabel(activeRide.status)}</b></p>
+          <div className="card">
             {rideTimes(activeRide)}
             {activeRide.status === 'searching' && (
               <>
@@ -2622,32 +2636,19 @@ export default function App() {
         </>
       ) : (
         <>
-          <div className="map-hero-full">
-            <MapView
-              height="54vh"
-              pickup={pickup}
-              destination={destination}
-              driver={null}
-              drivers={onlineDrivers}
-              pickMode={pickMode}
-              onPick={onMapPick}
-            />
+          <div className="svc-pills">
+            {(['ride_tuktuk', 'ride_motorcycle', 'delivery', 'restaurant'] as ServiceKind[]).map((k) => (
+              <button key={k} className={serviceKind === k ? 'svc-pill on' : 'svc-pill'} onClick={() => { setServiceKind(k); setSelectedRestaurantId(null); setCart({}) }}>{SERVICE_LABELS[k]}</button>
+            ))}
           </div>
-          <div className="card bottom-sheet">
-            <div className="sheet-handle" />
-            <h2><span className="icon-chip"><IconUser /></span>اطلب — دليفري كفر حكيم</h2>
-            <div className="row" style={{ flexWrap: 'wrap' }}>
-              {(['ride_tuktuk', 'ride_motorcycle', 'delivery', 'restaurant'] as ServiceKind[]).map((k) => (
-                <button key={k} className={serviceKind === k ? 'btn' : 'btn small'} onClick={() => { setServiceKind(k); setSelectedRestaurantId(null); setCart({}) }}>{SERVICE_LABELS[k]}</button>
-              ))}
-            </div>
-            <p className="muted">الدفع كاش عند الاستلام 💵 — {serviceKind === 'delivery' ? 'دليفري بالموتوسيكل من أي محل أو صيدلية' : serviceKind === 'restaurant' ? 'اطلب من مطاعم كفر حكيم وكرداسة وأبو رواش' : 'السعر بالاتفاق مع الكابتن'}</p>
-            {serviceKind === 'restaurant' ? (
-              restaurantBrowser
-            ) : (
-            <>
-            <div className="grid">
-            <div>
+          <p className="muted">الدفع كاش عند الاستلام 💵 — {serviceKind === 'delivery' ? 'دليفري بالموتوسيكل من أي محل أو صيدلية' : serviceKind === 'restaurant' ? 'اطلب من مطاعم كفر حكيم وكرداسة وأبو رواش' : 'السعر بالاتفاق مع الكابتن'}</p>
+          {serviceKind === 'restaurant' ? (
+            restaurantBrowser
+          ) : (
+            <div className="route-card">
+            <div className="rt-row">
+              <div className="rt-dot-col"><span className="rt-dot green" /><span className="rt-connector" /></div>
+              <div className="rt-field">
               <label>{serviceKind === 'delivery' ? 'هتجيب منين؟ (اسم المحل / الصيدلية)' : 'نقطة الركوب'}</label>
               <div className="suggest-wrap">
                 <input className="field-input" placeholder={pickup && pickup.label === 'موقعي الحالي' ? 'موقعي الحالي' : 'منين؟'} value={pickupLabel} onChange={(e) => { setPickupLabel(e.target.value); if (pickup && pickup.label === 'موقعي الحالي') setPickup(null) }} onBlur={() => setPickupSugg([])} />
@@ -2664,7 +2665,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="row">
+              <div className="rt-actions">
                 <button className="btn small" onClick={() => useMyLocation('pickup')}><IconPin /> موقعي الحالي</button>
                 <button className={pickMode === 'pickup' ? 'btn small active' : 'btn small'} onClick={() => setPickMode('pickup')}>حدّد على الخريطة</button>
               </div>
@@ -2673,8 +2674,11 @@ export default function App() {
                   <button key={p.label} type="button" className="btn small soft" onClick={() => pickPlace('pickup', p)}>📍 {p.label}</button>
                 ))}
               </div>
+              </div>
             </div>
-            <div>
+            <div className="rt-row">
+              <div className="rt-dot-col"><span className="rt-dot red" /></div>
+              <div className="rt-field">
               <label>{serviceKind === 'delivery' ? 'التوصيل فين؟' : 'الوجهة'}</label>
               <div className="suggest-wrap">
                 <input className="field-input" placeholder={destination && destination.label === 'موقعي الحالي' ? 'موقعي الحالي' : 'رايح فين؟'} value={destLabel} onChange={(e) => { setDestLabel(e.target.value); if (destination && destination.label === 'موقعي الحالي') setDestination(null) }} onBlur={() => setDestSugg([])} />
@@ -2691,7 +2695,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="row">
+              <div className="rt-actions">
                 <button className="btn small" onClick={() => useMyLocation('destination')}><IconPin /> موقعي الحالي</button>
                 <button className={pickMode === 'destination' ? 'btn small active' : 'btn small'} onClick={() => setPickMode('destination')}>حدّد على الخريطة</button>
               </div>
@@ -2700,40 +2704,52 @@ export default function App() {
                   <button key={p.label} type="button" className="btn small soft" onClick={() => pickPlace('destination', p)}>📍 {p.label}</button>
                 ))}
               </div>
+              </div>
             </div>
-          </div>
-
-          {serviceKind === 'delivery' && (
-            <div>
-              <label>هاتلي إيه؟</label>
-              <input className="field-input" placeholder="مثال: دوا من صيدلية النور، أو 2 كيلو طماطم من محل الخضار…" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} />
+            {serviceKind === 'delivery' && (
+              <div>
+                <label>هاتلي إيه؟</label>
+                <input className="field-input" placeholder="مثال: دوا من صيدلية النور، أو 2 كيلو طماطم من محل الخضار…" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} />
+              </div>
+            )}
             </div>
           )}
-          <p className="muted">دوس على الخريطة لتحديد {pickMode === 'pickup' ? 'نقطة الركوب' : pickMode === 'destination' ? 'الوجهة' : '—'} — أو استخدم زرار «موقعي الحالي».</p>
-
-          <h3><span className="icon-chip sm"><IconWallet /></span>{serviceKind === 'delivery' ? 'أجرة التوصيل' : 'سعر المشوار'}</h3>
-          <div className="fare-stepper">
-            <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.max(FARE_MIN, fare - 5))) }}>−</button>
-            <input
-              className="fare-number"
-              inputMode="numeric"
-              value={fareText}
-              onChange={(e) => {
-                const v = e.target.value.replace(/[^0-9]/g, '')
-                fareTouchedRef.current = true
-                setFareText(v)
-              }}
-              onBlur={() => setFareText(String(fare))}
-              aria-label="سعر المشوار"
+          <div className="map-panel">
+            <MapView
+              height="38vh"
+              pickup={pickup}
+              destination={destination}
+              driver={null}
+              drivers={onlineDrivers}
+              pickMode={pickMode}
+              onPick={onMapPick}
             />
-            <span className="fare-unit">جنيه</span>
-            <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
           </div>
-          <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
-          <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <><IconPin /> {serviceKind === 'delivery' ? 'اطلب دليفري' : serviceKind === 'ride_motorcycle' ? 'اطلب موتوسيكل' : 'اطلب توكتوك'} — {money(fare)}</>}</button>
+          {serviceKind !== 'restaurant' && (
+            <>
+              <p className="muted">دوس على الخريطة لتحديد {pickMode === 'pickup' ? 'نقطة الركوب' : pickMode === 'destination' ? 'الوجهة' : '—'} — أو استخدم زرار «موقعي الحالي».</p>
+              <h3><span className="icon-chip sm"><IconWallet /></span>{serviceKind === 'delivery' ? 'أجرة التوصيل' : 'سعر المشوار'}</h3>
+              <div className="fare-stepper">
+                <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.max(FARE_MIN, fare - 5))) }}>−</button>
+                <input
+                  className="fare-number"
+                  inputMode="numeric"
+                  value={fareText}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9]/g, '')
+                    fareTouchedRef.current = true
+                    setFareText(v)
+                  }}
+                  onBlur={() => setFareText(String(fare))}
+                  aria-label="سعر المشوار"
+                />
+                <span className="fare-unit">جنيه</span>
+                <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
+              </div>
+              <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
+              <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <><IconPin /> {serviceKind === 'delivery' ? 'اطلب دليفري' : serviceKind === 'ride_motorcycle' ? 'اطلب موتوسيكل' : 'اطلب توكتوك'} — {money(fare)}</>}</button>
             </>
-            )}
-          </div>
+          )}
         </>
       )}
     </>
@@ -3326,23 +3342,60 @@ export default function App() {
   // شاشة الدخول بالتليفون والكود — رقم التليفون أول حاجة بعد اختيار الدور
   // بوابة الدخول خطوة بخطوة، كل خطوة في صفحة لوحدها:
   // الخطوة 1: رقم التليفون — الخطوة 2: كود التحقق (للسواق والعميل)
+  // شاشات الدخول (v4) — تصميم من الصفر خاص بالتطبيق ده بس:
+  // شريط علوي + عنوان كبير + حقل بارز + زر مثبت تحت (مش كارت أبيض في نص الصفحة)
   const phoneAuthForm = !otpSent ? (
-    <div className="box">
-      <h3>{appRole === 'driver' ? 'تسجيل الكابتن' : 'تسجيل العميل'} — الخطوة 1 من 2: رقم التليفون</h3>
-      <p className="muted">هنبعتلك كود تحقق على رقمك — اكتبه صح عشان تدخل.</p>
-      <input placeholder="رقم التليفون (11 رقم)" inputMode="tel" value={regPhone} onChange={(e) => setRegPhone(e.target.value)} />
-      {/* reCAPTCHA مخفي — Firebase Phone Auth بيحتاجه على الويب */}
-      <div id="recaptcha-container" />
-      <button className="btn" onClick={requestOtp} disabled={otpBusy}>{otpBusy ? 'بيبعت الكود…' : 'ابعت كود التحقق'}</button>
+    <div className="auth-screen" dir="rtl">
+      <div className="auth-topbar">
+        <button className="auth-back" onClick={() => { setAppRole(null); localStorage.removeItem('deliverykafrhakim-app-role'); setRole('passenger') }}><IconBack /> تغيير الدور</button>
+        <div className="auth-steps"><i className="on" /><i /><b>1 من 2</b></div>
+      </div>
+      <div className="auth-body">
+        <img src={logoUrl} alt="دليفري كفر حكيم" className="auth-mini-logo" />
+        <h2 className="auth-title">رقم تليفونك؟</h2>
+        <p className="auth-sub">هنبعتلك كود تحقق في رسالة SMS على رقمك — اكتبه صح عشان تدخل {appRole === 'driver' ? 'ككابتن' : 'كعميل'}.</p>
+        <div className="phone-field">
+          <span className="phone-prefix">+20</span>
+          <input className="phone-input" placeholder="1XXXXXXXXX" inputMode="tel" value={regPhone} onChange={(e) => setRegPhone(e.target.value)} aria-label="رقم التليفون" />
+        </div>
+        <div className="auth-hint">📩 الكود صالح لمرة واحدة، وبيوصلك من رقم التطبيق — من غير باسورد ومن غير ما تسجّل بحساب جوجل.</div>
+        {/* reCAPTCHA مخفي — Firebase Phone Auth بيحتاجه على الويب */}
+        <div id="recaptcha-container" />
+      </div>
+      <div className="auth-action">
+        <button className="btn big" onClick={requestOtp} disabled={otpBusy}>{otpBusy ? 'بيبعت الكود…' : 'ابعت كود التحقق'}</button>
+      </div>
     </div>
   ) : (
-    <div className="box">
-      <h3>الخطوة 2 من 2: كود التحقق</h3>
-      <p className="muted">📩 الكود اتبعت في رسالة SMS على رقم {regPhone} — اكتب الكود اللي وصلك، ومش بيظهر جوه التطبيق.</p>
-      <input placeholder="الكود (6 أرقام)" inputMode="numeric" maxLength={6} value={otpInput} onChange={(e) => setOtpInput(e.target.value.replace(/[^0-9]/g, ''))} />
-      <button className="btn" onClick={verifyOtp} disabled={otpBusy}>{otpBusy ? 'بيتأكد…' : 'تأكيد الكود'}</button>
-      <p className="muted">حد إرسال الكود: {OTP_MAX_PER_HOUR} أكواد في الساعة لكل رقم.</p>
-      <button className="btn small soft" onClick={() => { setOtpSent(false); setOtpInput('') }}><IconBack /> تغيير الرقم</button>
+    <div className="auth-screen" dir="rtl">
+      <div className="auth-topbar">
+        <button className="auth-back" onClick={() => { setOtpSent(false); setOtpInput('') }}><IconBack /> تغيير الرقم</button>
+        <div className="auth-steps"><i className="on" /><i className="on" /><b>2 من 2</b></div>
+      </div>
+      <div className="auth-body">
+        <img src={logoUrl} alt="دليفري كفر حكيم" className="auth-mini-logo" />
+        <h2 className="auth-title">اكتب الكود</h2>
+        <p className="auth-sub">الكود اتبعت في رسالة SMS — اكتب الـ 6 أرقام اللي وصلوك.</p>
+        <p className="auth-phone-line">{regPhone}</p>
+        <div className="otp-boxes" onPaste={(e) => { e.preventDefault(); const digits = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 6); if (digits) { setOtpInput(digits); otpBoxRefs.current[Math.min(digits.length, 5)]?.focus() } }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <input
+              key={i}
+              ref={(el) => { otpBoxRefs.current[i] = el }}
+              className={otpInput[i] ? 'otp-box filled' : 'otp-box'}
+              inputMode="numeric"
+              value={otpInput[i] ?? ''}
+              aria-label={`الرقم ${i + 1} من الكود`}
+              onChange={(e) => setOtpDigit(i, e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Backspace' && !e.currentTarget.value && i > 0) { e.preventDefault(); setOtpInput(otpInput.slice(0, i - 1) + otpInput.slice(i)); otpBoxRefs.current[i - 1]?.focus() } }}
+            />
+          ))}
+        </div>
+        <p className="muted auth-resend">حد إرسال الكود: {OTP_MAX_PER_HOUR} أكواد في الساعة لكل رقم.</p>
+      </div>
+      <div className="auth-action">
+        <button className="btn big" onClick={verifyOtp} disabled={otpBusy || otpInput.length < 6}>{otpBusy ? 'بيتأكد…' : 'تأكيد الكود'}</button>
+      </div>
     </div>
   )
 
@@ -3513,31 +3566,48 @@ export default function App() {
     </div>
   ) : null
   if (!isVerified) {
+    if (appRole === null) {
+      return (
+        <div className="auth-screen" dir="rtl">
+          <div className="auth-hero">
+            <img src={logoUrl} alt="دليفري كفر حكيم" className="auth-hero-logo" />
+            <h1 className="auth-hero-title">دليفري كفر حكيم</h1>
+            <p className="auth-hero-slogan">توصيل ركاب وطلبات.. من أي مكان!</p>
+            <div className="auth-svc-strip">
+              <span>🛺 توكتوك</span>
+              <span>🏍️ موتوسيكل</span>
+              <span>📦 دليفري</span>
+              <span>🍽️ مطاعم</span>
+            </div>
+            <div className="auth-sheet">
+              <h2>أهلاً بيك في كفر حكيم</h2>
+              <p className="muted auth-sub">اختار هتستخدم التطبيق إزاي</p>
+              <div className="role-tiles">
+                <button className="role-tile" onClick={() => chooseRole('passenger')}>
+                  <span className="role-ic"><IconUser /></span>
+                  <b>أنا عميل</b>
+                  <span>أطلب توكتوك أو موتوسيكل أو دليفري أو أكل</span>
+                </button>
+                <button className="role-tile driver" onClick={() => chooseRole('driver')}>
+                  <span className="role-ic"><IconDriver /></span>
+                  <b>أنا كابتن</b>
+                  <span>اشتغل بتوكتوك أو موتوسيكل واكسب من كل مشوار</span>
+                </button>
+              </div>
+              <p className="muted auth-ver">دليفري كفر حكيم — الإصدار {APP_VERSION} — كفر حكيم • كرداسة • أبو رواش</p>
+            </div>
+          </div>
+          {noticeModal}
+          {updateModal}
+        </div>
+      )
+    }
     return (
-      <div className="app" dir="rtl">
-        <header className="header">
-          <img src={logoUrl} alt="دليفري كفر حكيم" className="logo" />
-          <h1><span className="brand">دليفري كفر حكيم</span></h1>
-        </header>
+      <>
         {noticeModal}
         {updateModal}
-        {appRole === null ? (
-          <div className="card role-picker">
-            <h2>أهلاً بيك في دليفري كفر حكيم</h2>
-            <p className="muted">اختار هتستخدم التطبيق إزاي</p>
-            <button className="btn role-btn" onClick={() => chooseRole('passenger')}><IconUser /> أنا عميل — عايز أطلب (توكتوك / موتوسيكل / دليفري / مطعم)</button>
-            <button className="btn role-btn" onClick={() => chooseRole('driver')}><IconDriver /> أنا كابتن — عايز أشتغل</button>
-          </div>
-        ) : (
-          <div className="card">
-            {phoneAuthForm}
-            <button className="btn small soft" onClick={() => { setAppRole(null); localStorage.removeItem('deliverykafrhakim-app-role'); setRole('passenger') }}><IconBack /> تغيير الدور</button>
-          </div>
-        )}
-        <footer className="footer">
-          <p className="muted">دليفري كفر حكيم — الإصدار {APP_VERSION}</p>
-        </footer>
-      </div>
+        {phoneAuthForm}
+      </>
     )
   }
 

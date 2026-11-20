@@ -232,3 +232,83 @@ label { font-weight: 700; font-size: 14px; }
 .call-timer { font-size: 28px; font-weight: 800; margin: 4px 0 8px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .call-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin-top: 12px; }
 .call-actions .btn { margin: 4px 2px; }
+
+/* ===== شاشات الدخول — تصميم من الصفر (v4): تكوين جديد خاص بالتطبيق ده بس ===== */
+/* غلاف شاشات الدخول: ملء الشاشة من غير حاوية .app الفاتحة ولا كارت أبيض في النص */
+.auth-screen { min-height: 100dvh; min-height: 100svh; display: flex; flex-direction: column; background: #F4F6F8; color: #0B2B4B; max-width: 760px; margin: 0 auto; }
+
+/* --- شاشة الترحيب: بطل كحلي بملء الشاشة + ورقة بيضاء تطلع من تحت --- */
+.auth-hero { flex: 1; display: flex; flex-direction: column; background: linear-gradient(180deg, #061A2E 0%, #0B2B4B 55%, #14507E 100%); color: #fff; padding: 44px 22px 0; position: relative; overflow: hidden; }
+.auth-hero::after { content: ''; position: absolute; width: 340px; height: 340px; border-radius: 50%; border: 44px solid rgba(255, 197, 49, 0.10); top: -110px; left: -110px; pointer-events: none; }
+.auth-hero-logo { width: 148px; height: 148px; border-radius: 50%; object-fit: cover; margin: 6px auto 14px; border: 5px solid #FFC531; box-shadow: 0 0 0 8px rgba(255,197,49,.18), 0 22px 44px rgba(0,0,0,.45); display: block; position: relative; z-index: 1; }
+.auth-hero-title { text-align: center; font-size: 34px; font-weight: 800; margin: 0 0 4px; color: #FFC531; text-shadow: 0 2px 8px rgba(0,0,0,.35); position: relative; z-index: 1; }
+.auth-hero-slogan { text-align: center; font-size: 16px; font-weight: 700; color: #E3ECF5; margin: 0 0 16px; position: relative; z-index: 1; }
+.auth-svc-strip { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 0 0 22px; position: relative; z-index: 1; }
+.auth-svc-strip span { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.28); color: #fff; border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 800; }
+.auth-sheet { background: #fff; border-radius: 32px 32px 0 0; padding: 22px 20px 26px; box-shadow: 0 -18px 40px rgba(0,0,0,.35); position: relative; z-index: 2; margin-top: auto; }
+.auth-sheet h2 { margin: 0 0 4px; font-size: 20px; font-weight: 800; text-align: center; }
+.auth-sheet .auth-sub { text-align: center; }
+.role-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.role-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 10px 16px; border-radius: 22px; border: 2px solid #DCE3E8; background: linear-gradient(180deg, #ffffff, #F4F6F8); cursor: pointer; font-family: inherit; color: #0B2B4B; box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 -4px 0 rgba(11,43,75,.12) inset, 0 10px 22px rgba(15,23,42,.12); transition: transform .08s ease, box-shadow .08s ease; }
+.role-tile:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 -1px 0 rgba(11,43,75,.12) inset, 0 3px 8px rgba(15,23,42,.12); }
+.role-tile .role-ic { width: 58px; height: 58px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #FFD34D, #FFC531 60%, #D99400); box-shadow: 0 1px 0 rgba(255,255,255,.5) inset, 0 -3px 0 rgba(138,97,0,.3) inset, 0 8px 16px rgba(255,197,49,.45); }
+.role-tile .role-ic .ic { width: 28px; height: 28px; }
+.role-tile.driver .role-ic { background: linear-gradient(180deg, #14507E, #0B2B4B 60%, #061A2E); color: #FFC531; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 -3px 0 rgba(6,26,46,.4) inset, 0 8px 16px rgba(11,43,75,.45); }
+.role-tile b { font-size: 18px; font-weight: 800; }
+.role-tile span { font-size: 12px; color: var(--muted); font-weight: 700; text-align: center; line-height: 1.5; }
+.auth-ver { text-align: center; margin: 16px 0 0; }
+
+/* --- شاشتا الرقم والكود: شريط علوي + عنوان كبير + زر مثبت تحت --- */
+.auth-topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 0; }
+.auth-back { display: inline-flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #DCE3E8; color: #0B2B4B; border-radius: 999px; padding: 8px 14px; font-size: 14px; font-weight: 800; font-family: inherit; cursor: pointer; box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 -2px 0 rgba(11,43,75,.1) inset, 0 4px 10px rgba(15,23,42,.10); }
+.auth-back:active { transform: translateY(2px); }
+.auth-steps { display: flex; gap: 6px; align-items: center; }
+.auth-steps i { width: 26px; height: 6px; border-radius: 999px; background: #DCE3E8; }
+.auth-steps i.on { background: #FFC531; box-shadow: 0 2px 6px rgba(255,197,49,.5); }
+.auth-steps b { font-size: 12px; color: var(--muted); margin-inline-start: 4px; }
+.auth-body { padding: 26px 22px 16px; flex: 1; display: flex; flex-direction: column; }
+.auth-title { font-size: 30px; font-weight: 800; margin: 0 0 6px; }
+.auth-sub { color: var(--muted); font-size: 15px; line-height: 1.7; margin: 0 0 20px; }
+.phone-field { display: flex; align-items: stretch; gap: 10px; }
+.phone-prefix { display: flex; align-items: center; background: linear-gradient(180deg, #14507E, #0B2B4B); color: #FFC531; font-weight: 800; font-size: 19px; border-radius: 16px; padding: 0 16px; box-shadow: 0 1px 0 rgba(255,255,255,.35) inset, 0 -3px 0 rgba(6,26,46,.4) inset, 0 8px 16px rgba(11,43,75,.3); direction: ltr; }
+.phone-field input.phone-input { flex: 1; margin: 0; font-size: 24px; font-weight: 800; text-align: center; letter-spacing: 2px; direction: ltr; padding: 14px 10px; }
+.auth-hint { display: flex; gap: 8px; align-items: flex-start; background: #FFF8E1; border: 1px solid #FFE082; border-radius: 14px; padding: 12px 14px; margin-top: 16px; font-size: 13px; font-weight: 700; color: #7A5A00; line-height: 1.6; }
+.auth-action { padding: 0 22px 26px; }
+.auth-action .btn.big { margin: 0; }
+.auth-mini-logo { width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 3px solid #FFC531; box-shadow: 0 6px 14px rgba(11,43,75,.3); margin-bottom: 14px; }
+
+/* صناديق الكود: 6 خانات منفصلة بدل حقل واحد */
+.otp-boxes { display: flex; gap: 8px; justify-content: center; margin: 6px 0 16px; direction: ltr; }
+.otp-box { width: 48px; height: 60px; text-align: center; font-size: 28px; font-weight: 800; border: 2px solid #DCE3E8; border-radius: 16px; background: linear-gradient(180deg, #fff, #F4F6F8); color: #0B2B4B; font-family: inherit; box-shadow: 0 2px 5px rgba(15,23,42,.08) inset, 0 1px 0 rgba(255,255,255,.9), 0 6px 14px rgba(11,43,75,.10); caret-color: #0B2B4B; padding: 0; margin: 0; }
+.otp-box:focus { outline: none; border-color: #0B2B4B; box-shadow: 0 2px 5px rgba(15,23,42,.06) inset, 0 0 0 3px rgba(255,197,49,.35), 0 6px 14px rgba(11,43,75,.15); background: #fff; }
+.otp-box.filled { border-color: #FFC531; background: linear-gradient(180deg, #FFF8E1, #FFECB3); }
+@media (max-width: 380px) { .otp-box { width: 42px; height: 54px; font-size: 24px; } }
+.auth-phone-line { text-align: center; font-weight: 800; font-size: 16px; margin: 0 0 4px; direction: ltr; }
+.auth-resend { text-align: center; }
+
+/* ===== الشاشة الرئيسية للعميل — تكوين جديد (v4): النموذج أولاً والخريطة تحته ===== */
+/* حبوب الخدمات: شريط أفقي قابل للتمرير فوق النموذج، بدل صف أزرار جوّه الكارت */
+.svc-pills { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 12px; scrollbar-width: none; }
+.svc-pills::-webkit-scrollbar { display: none; }
+.svc-pill { flex-shrink: 0; border-radius: 999px; padding: 11px 18px; font-size: 15px; font-weight: 800; font-family: inherit; cursor: pointer; border: 1.5px solid #DCE3E8; background: linear-gradient(180deg, #fff, #F4F6F8); color: #475569; box-shadow: 0 1px 0 rgba(255,255,255,.95) inset, 0 -3px 0 rgba(15,23,42,.08) inset, 0 5px 12px rgba(15,23,42,.10); }
+.svc-pill:active { transform: translateY(2px); }
+.svc-pill.on { background: linear-gradient(180deg, #14507E, #0B2B4B 60%, #061A2E); color: #FFC531; border-color: #061A2E; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 -3px 0 rgba(6,26,46,.4) inset, 0 8px 18px rgba(11,43,75,.4); }
+/* كارت المسار: خط زمني عمودي (نقطة خضرا ← خط متقطع ← نقطة حمرا) بدل عمودين جنب بعض */
+.route-card { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow-3d); }
+.rt-row { display: flex; gap: 12px; align-items: flex-start; }
+.rt-dot-col { display: flex; flex-direction: column; align-items: center; align-self: stretch; flex-shrink: 0; padding-top: 14px; }
+.rt-dot { width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(15,23,42,.25); flex-shrink: 0; }
+.rt-dot.green { background: #16a34a; }
+.rt-dot.red { background: #dc2626; }
+.rt-connector { width: 3px; flex: 1; min-height: 30px; background: repeating-linear-gradient(180deg, #CBD5E1 0 5px, transparent 5px 10px); margin: 3px 0; }
+.rt-field { flex: 1; min-width: 0; }
+.rt-field label { display: block; margin-bottom: 2px; }
+.rt-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+/* لوحة الخريطة: مستطيل مدوّر تحت النموذج، مش هيرو بملء العرض فوق */
+.map-panel { border: 2px solid #fff; outline: 1px solid var(--line); border-radius: 20px; overflow: hidden; margin: 0 0 14px; box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 20px 40px rgba(15,23,42,.18), 0 6px 14px rgba(15,23,42,.12); }
+.map-panel .map-box { border: none; outline: none; border-radius: 0; margin: 0; box-shadow: none; }
+/* شريط حالة الرحلة: بانر كحلي فوق الخريطة بدل عنوان جوّه الشيت */
+.ride-status-strip { display: flex; align-items: center; gap: 10px; background: linear-gradient(180deg, #14507E, #0B2B4B); color: #fff; border-radius: 18px; padding: 14px 16px; margin: 4px 0 12px; box-shadow: 0 1px 0 rgba(255,255,255,.35) inset, 0 -3px 0 rgba(6,26,46,.4) inset, 0 10px 22px rgba(11,43,75,.35); }
+.ride-status-strip b { font-size: 17px; }
+.ride-status-strip .muted { color: #C9DCEF; }
+.ride-status-strip .spacer { flex: 1; }
