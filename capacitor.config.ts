@@ -4,7 +4,7 @@ const config: CapacitorConfig = {
   appId: 'com.delivery.kafrhakim',
   appName: 'دليفري كفر حكيم',
   webDir: 'dist',
-  backgroundColor: '#fff8ec',
+  backgroundColor: '#0B2B4B',
   android: {
     allowMixedContent: true,
   },
