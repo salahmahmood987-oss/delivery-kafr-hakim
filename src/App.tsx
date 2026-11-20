@@ -2374,8 +2374,12 @@ export default function App() {
   const approvedRestaurants = state.restaurants.filter((r) => r.approved)
   // (v2) فلترة المطاعم حسب التصنيف عند العميل
   const filteredRestaurants = restaurantCategoryFilter === 'all' ? approvedRestaurants : approvedRestaurants.filter((r) => r.category === restaurantCategoryFilter)
-  const myPhone = state.passenger?.phone ?? null
-  const myRestaurants = myPhone ? state.restaurants.filter((r) => r.ownerPhone === myPhone) : []
+  // (v9) رقم صاحب المطعم ممكن يتسجل خام (0155...) من لوحة الإدارة،
+  // بينما رقم الدخول E.164 (+20...) — نقارن بعد التطبيع من الطرفين،
+  // والرقم ييجي من ملف الراكب أو الكابتن (أيهما موجود) عشان التبويب
+  // يظهر لصاحب المطعم في أي دور هو فيه.
+  const myPhoneE164 = toE164Phone(state.passenger?.phone ?? state.driver.phone ?? '') ?? null
+  const myRestaurants = myPhoneE164 ? state.restaurants.filter((r) => toE164Phone(r.ownerPhone) === myPhoneE164) : []
   const selectedRestaurant = state.restaurants.find((r) => r.id === selectedRestaurantId) ?? null
   const selectedMenu = selectedRestaurant ? state.menuItems.filter((m) => m.restaurantId === selectedRestaurant.id && m.available) : []
   const cartItems = selectedMenu.filter((m) => (cart[m.id] ?? 0) > 0).map((m) => ({ ...m, qty: cart[m.id] ?? 0 }))
@@ -3312,11 +3316,19 @@ export default function App() {
       showNotice('اكتب اسم المطعم ورقم تليفون صاحب المطعم.')
       return
     }
+    // (v9) طبّع رقم صاحب المطعم E.164 قبل الحفظ — المقارنة في
+    // myRestaurants بتطبّع من الطرفين برضه، فالصفوف القديمة الخام
+    // (زي 01550364683) تفضل شغالة من غير ترحيل بيانات.
+    const ownerPhoneE164 = toE164Phone(newRestaurantPhone.trim())
+    if (!ownerPhoneE164) {
+      showNotice('رقم تليفون صاحب المطعم مش صحيح — اكتبه زي 015xxxxxxxxx.')
+      return
+    }
     const r: Restaurant = {
       id: `R-${Date.now()}`,
       name: newRestaurantName.trim(),
       category: newRestaurantCategory,
-      ownerPhone: newRestaurantPhone.trim(),
+      ownerPhone: ownerPhoneE164,
       description: '',
       address: newRestaurantAddress.trim() || 'كفر حكيم',
       photoUrl: null,
