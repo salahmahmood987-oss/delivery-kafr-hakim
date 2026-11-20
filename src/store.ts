@@ -109,7 +109,7 @@ export function defaultState(): AppState {
     restaurants: [],
     menuItems: [],
     restaurantOrders: [],
-    admin: { walletNumber: '', walletName: '' },
+    admin: { walletNumber: '', walletName: '', tuktukBaseFare: 15, motorcycleBaseFare: 20, rideCommissionRate: 0.05, restaurantCommissionRate: 0.1, deliveryFee: 8 },
     lastOrderNum: 1000,
     lastDriverNum: 1001,
   }
@@ -126,6 +126,7 @@ export function loadState(): AppState {
       ...defaultState(),
       ...parsed,
       driver: { ...defaultState().driver, ...(parsed.driver ?? {}) },
+      admin: { ...defaultState().admin, ...(parsed.admin ?? {}) },
     }
   } catch {
     return defaultState()
@@ -140,9 +141,9 @@ export function saveState(state: AppState) {
   }
 }
 
-/** عمولة 5% من سعر الرحلة المكتملة */
-export function commissionFor(fare: number): number {
-  return Math.round(fare * COMMISSION_RATE * 100) / 100
+/** عمولة التطبيق من سعر الرحلة المكتملة — النسبة من إعدادات الأدمن (5% افتراضياً) */
+export function commissionFor(fare: number, rate: number = COMMISSION_RATE): number {
+  return Math.round(fare * rate * 100) / 100
 }
 
 /** عمولة المطاعم (10% افتراضي — من سعر الأكل، من المطعم مش من العميل) */

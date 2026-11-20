@@ -44,8 +44,8 @@ import type { Firestore, QueryConstraint } from 'firebase/firestore'
 import { isFirebaseConfigured } from './firebaseConfig'
 import { getFirebaseApp } from './firebaseApp'
 import { preparePhotoForFirestore } from './imageUpload'
-import type { DriverProfile, LaunchWaitlistEntry, MenuItem, PassengerProfile, PaymentRequest, Restaurant, RestaurantOrder, Ride, RideCall, SupportChat, SupportMessage, VehicleType, WaitlistEntry } from './types'
-import { RESTAURANT_COMMISSION_RATE } from './types'
+import type { AdminSettings, DriverProfile, LaunchWaitlistEntry, MenuItem, PassengerProfile, PaymentRequest, Restaurant, RestaurantCategory, RestaurantOrder, Ride, RideCall, SupportChat, SupportMessage, VehicleType, WaitlistEntry } from './types'
+import { COMMISSION_RATE, RESTAURANT_COMMISSION_RATE } from './types'
 
 export const firebaseEnabled = isFirebaseConfigured
 
@@ -140,19 +140,27 @@ export async function nextOrderNumber(): Promise<string> {
   }
 }
 
-/** يقرأ رقم محفظة الأدمن من السيرفر (settings/admin) — null لو لسه متحددش. */
-export async function loadAdminSettings(): Promise<{ walletNumber: string; walletName: string } | null> {
+/** يقرأ إعدادات الأدمن من السيرفر (settings/admin) — null لو لسه متحددش.
+ *  الحقول الناقصة (إعدادات قديمة) تتملى بالقيم الافتراضية. */
+export async function loadAdminSettings(): Promise<AdminSettings | null> {
   const docData = await loadDoc('settings', 'admin')
   if (!docData) return null
+  const num = (v: unknown, fallback: number): number =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback
   return {
     walletNumber: typeof docData.walletNumber === 'string' ? docData.walletNumber : '',
     walletName: typeof docData.walletName === 'string' ? docData.walletName : '',
+    tuktukBaseFare: num(docData.tuktukBaseFare, 15),
+    motorcycleBaseFare: num(docData.motorcycleBaseFare, 20),
+    rideCommissionRate: num(docData.rideCommissionRate, COMMISSION_RATE),
+    restaurantCommissionRate: num(docData.restaurantCommissionRate, RESTAURANT_COMMISSION_RATE),
+    deliveryFee: num(docData.deliveryFee, 8),
   }
 }
 
-/** يحفظ رقم محفظة الأدمن على السيرفر — عشان السواقين يشوفوه على أي جهاز. */
-export async function saveAdminSettings(s: { walletNumber: string; walletName: string }): Promise<void> {
-  await saveDoc('settings', 'admin', { walletNumber: s.walletNumber, walletName: s.walletName })
+/** يحفظ إعدادات الأدمن على السيرفر — الأسعار والعمولات بتتطبق على كل الأجهزة فوراً. */
+export async function saveAdminSettings(s: AdminSettings): Promise<void> {
+  await saveDoc('settings', 'admin', { ...s })
 }
 
 /**
@@ -766,6 +774,7 @@ function normalizeRestaurant(id: string, data: Record<string, unknown>): Restaur
   return {
     id: d.id ?? id,
     name: d.name ?? 'مطعم',
+    category: (['ful', 'grill', 'pizza', 'pharmacy', 'other'].includes(d.category as string) ? d.category : 'other') as RestaurantCategory,
     ownerPhone: d.ownerPhone ?? '',
     description: d.description ?? '',
     address: d.address ?? '',

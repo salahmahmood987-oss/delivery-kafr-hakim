@@ -155,11 +155,24 @@ export interface Ride {
   driverRatingForPassenger: number | null
 }
 
+/** تصنيف المطعم — للفلترة عند العميل (v2) */
+export type RestaurantCategory = 'ful' | 'grill' | 'pizza' | 'pharmacy' | 'other'
+
+export const RESTAURANT_CATEGORY_LABELS: Record<RestaurantCategory, string> = {
+  ful: 'فول وطعمية 🧆',
+  grill: 'مشويات وكبدة 🥩',
+  pizza: 'بيتزا وفطائر 🍕',
+  pharmacy: 'صيدلية وماركت 💊',
+  other: 'أخرى',
+}
+
 /** مطعم متعاقد معاه — المنيو أصنافه، والتوصيل بكباتن موتوسيكل.
  *  الدفع كاش عند الاستلام في v1 — مفيش دفع أونلاين. */
 export interface Restaurant {
   id: string
   name: string
+  /** تصنيف المطعم — للفلترة عند العميل */
+  category: RestaurantCategory
   /** رقم تليفون صاحب المطعم — هو اللي بيدير المنيو والطلبات */
   ownerPhone: string
   /** وصف مختصر + العنوان (كفر حكيم / كرداسة / أبو رواش) */
@@ -277,6 +290,16 @@ export interface PaymentRequest {
 export interface AdminSettings {
   walletNumber: string
   walletName: string
+  /** فتحة عداد التوكتوك الافتراضية (جنيه) — الأدمن يغيّرها من لوحة الإدارة */
+  tuktukBaseFare: number
+  /** فتحة عداد الموتوسيكل الافتراضية (جنيه) */
+  motorcycleBaseFare: number
+  /** عمولة التطبيق من المشاوير والدليفري — 0.05 = 5% */
+  rideCommissionRate: number
+  /** عمولة المطاعم الافتراضية — 0.1 = 10% */
+  restaurantCommissionRate: number
+  /** أجرة توصيل المطاعم الافتراضية (جنيه) */
+  deliveryFee: number
 }
 
 /** رسالة واحدة في شات الدعم (v50) — الوقت ISO عشان يترتب صح من أي جهاز */

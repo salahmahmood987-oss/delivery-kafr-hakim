@@ -13,7 +13,7 @@ import { VoiceCall } from './voiceCall'
 import type { VoiceCallEvent } from './voiceCall'
 import { getFirebaseAuth } from './firebaseApp'
 import { where } from 'firebase/firestore'
-import { isInServiceArea, isInServiceBBox, OUT_OF_AREA_MESSAGE, OUT_OF_AREA_TITLE } from './geo'
+import { isInServiceArea, isInServiceBBox, OUT_OF_AREA_MESSAGE, OUT_OF_AREA_TITLE, SERVICE_PLACES } from './geo'
 import { sendOtpCode, toE164Phone, verifyOtpCode } from './otp'
 import {
   ADMIN_PHONES,
@@ -33,13 +33,13 @@ import {
   FARE_MIN,
   MAX_DEBT_EGP,
   OTP_MAX_PER_HOUR,
-  RESTAURANT_COMMISSION_RATE,
+  RESTAURANT_CATEGORY_LABELS,
   RESTAURANT_ORDER_LABELS,
   SERVICE_LABELS,
   VEHICLE_LABELS,
   vehicleCanServe,
 } from './types'
-import type { DriverProfile, LatLng, LaunchSettings, MenuItem, Offer, PaymentRequest, Restaurant, RestaurantOrder, Ride, RideCall, Role, ServiceKind, SupportChat } from './types'
+import type { AdminSettings, DriverProfile, LatLng, LaunchSettings, MenuItem, Offer, PaymentRequest, Restaurant, RestaurantCategory, RestaurantOrder, Ride, RideCall, Role, ServiceKind, SupportChat } from './types'
 
 function stars(value: number, onRate?: (n: number) => void) {
   return (
@@ -439,6 +439,7 @@ export default function App() {
   const [deliveryNote, setDeliveryNote] = useState('')
   // المطاعم: المطعم المفتوح + السلة (صنف → كمية) + ملاحظات الطلب
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<string | null>(null)
+  const [restaurantCategoryFilter, setRestaurantCategoryFilter] = useState<'all' | RestaurantCategory>('all')
   const [cart, setCart] = useState<Record<string, number>>({})
   const [orderNote, setOrderNote] = useState('')
   const [orderBusy, setOrderBusy] = useState(false)
@@ -446,6 +447,12 @@ export default function App() {
   const [newRestaurantName, setNewRestaurantName] = useState('')
   const [newRestaurantPhone, setNewRestaurantPhone] = useState('')
   const [newRestaurantAddress, setNewRestaurantAddress] = useState('')
+  const [newRestaurantCategory, setNewRestaurantCategory] = useState<RestaurantCategory>('other')
+  // (v2) أصناف أولية اختيارية عند إضافة المطعم — عشان يظهر بمنيو جاهز من أول يوم
+  const [newItem1Name, setNewItem1Name] = useState('')
+  const [newItem1Price, setNewItem1Price] = useState('')
+  const [newItem2Name, setNewItem2Name] = useState('')
+  const [newItem2Price, setNewItem2Price] = useState('')
   const [newMenuName, setNewMenuName] = useState('')
   const [newMenuPrice, setNewMenuPrice] = useState('')
   const [search, setSearch] = useState('')
@@ -529,6 +536,16 @@ export default function App() {
     FARE_MIN,
     Math.min(FARE_MAX, parseInt(fareText || '0', 10) || FARE_MIN),
   )
+
+  // (v2) السعر الافتراضي من إعدادات الأدمن (فتحة العداد حسب نوع الخدمة) —
+  // بيتحدث لما الإعدادات توصل من السيرفر، بس لو العميل لسه معدلش السعر بنفسه.
+  const fareTouchedRef = useRef(false)
+  const baseFareFor = (kind: ServiceKind): number =>
+    kind === 'ride_tuktuk' ? state.admin.tuktukBaseFare : kind === 'restaurant' ? state.admin.deliveryFee : state.admin.motorcycleBaseFare
+  useEffect(() => {
+    if (!fareTouchedRef.current) setFareText(String(baseFareFor(serviceKind)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.admin, serviceKind])
 
   // (v48) الرحلة النشطة بتاعة العميل ده بس — قبل كده أي راكب كان بيشوف
   // رحلة أي راكب تاني ويقدر يلغيها ويغيّر سعرها، ومكانش يعرف يطلب أصلاً.
@@ -761,7 +778,7 @@ export default function App() {
     // (v48) رقم محفظة الأدمن من السيرفر — قبل كده كان محلي بس على جهاز صلاح،
     // فالسواقين على موبايلاتهم كانوا بيشوفوا «لم يحددها الأدمن بعد».
     void loadAdminSettings().then((s) => {
-      if (s && (s.walletNumber || s.walletName)) update({ admin: s })
+      if (s) update({ admin: { ...defaultState().admin, ...s } })
     })
     if (!isAdmin) {
       setState((s) => (s.launchWaitlist.length ? { ...s, launchWaitlist: [] } : s))
@@ -1543,8 +1560,8 @@ export default function App() {
     // وبتتحفظ في مستنده على السيرفر — عشان تظهر على أي جهاز
     let driver = state.driver
     if (status === 'completed') {
-      // عمولة 5% — بتتخصم من رصيد المحفظة الأول، والباقي بس بيتسجل مديونية
-      const commission = commissionFor(ride.fare)
+      // عمولة التطبيق — النسبة من إعدادات الأدمن (5% افتراضياً) — بتتخصم من رصيد المحفظة الأول، والباقي بس بيتسجل مديونية
+      const commission = commissionFor(ride.fare, state.admin.rideCommissionRate)
       const fromBalance = Math.min(driver.balance ?? 0, commission)
       driver = {
         ...driver,
@@ -2258,6 +2275,20 @@ export default function App() {
     }
   }
 
+  /** (v2) أماكن سريعة — الضغطة على chip تملأ الحقل وتحرك الخريطة من غير بحث ولا نت. */
+  function pickPlace(which: 'pickup' | 'destination', place: { label: string; lat: number; lng: number }) {
+    const ll: LatLng = { lat: place.lat, lng: place.lng, label: place.label }
+    if (which === 'pickup') {
+      setPickup(ll)
+      setPickupLabel(place.label)
+      setPickupSugg([])
+    } else {
+      setDestination(ll)
+      setDestLabel(place.label)
+      setDestSugg([])
+    }
+  }
+
   // الكباتن المتاحين على خريطة العميل — أونلاين ومشاركين موقعهم
   const onlineDrivers = useMemo(
     () =>
@@ -2277,6 +2308,8 @@ export default function App() {
   // ---- المطاعم (دليفري كفر حكيم v1) ----
   // المطاعم المعتمدة اللي العميل يشوفها + المطاعم اللي العميل ده صاحبها
   const approvedRestaurants = state.restaurants.filter((r) => r.approved)
+  // (v2) فلترة المطاعم حسب التصنيف عند العميل
+  const filteredRestaurants = restaurantCategoryFilter === 'all' ? approvedRestaurants : approvedRestaurants.filter((r) => r.category === restaurantCategoryFilter)
   const myPhone = state.passenger?.phone ?? null
   const myRestaurants = myPhone ? state.restaurants.filter((r) => r.ownerPhone === myPhone) : []
   const selectedRestaurant = state.restaurants.find((r) => r.id === selectedRestaurantId) ?? null
@@ -2375,10 +2408,17 @@ export default function App() {
       {!selectedRestaurant ? (
         <>
           <h3>🍽️ المطاعم المتعاقد معاها</h3>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <button className={restaurantCategoryFilter === 'all' ? 'btn small' : 'btn small soft'} onClick={() => setRestaurantCategoryFilter('all')}>الكل</button>
+            {(Object.keys(RESTAURANT_CATEGORY_LABELS) as RestaurantCategory[]).map((c) => (
+              <button key={c} className={restaurantCategoryFilter === c ? 'btn small' : 'btn small soft'} onClick={() => setRestaurantCategoryFilter(c)}>{RESTAURANT_CATEGORY_LABELS[c]}</button>
+            ))}
+          </div>
           {approvedRestaurants.length === 0 && <p className="muted">لسه مفيش مطاعم متعاقد معاها — الأدمن بيضيف المطاعم من لوحة الإدارة.</p>}
-          {approvedRestaurants.map((r) => (
+          {approvedRestaurants.length > 0 && filteredRestaurants.length === 0 && <p className="muted">مفيش مطاعم في التصنيف ده لسه.</p>}
+          {filteredRestaurants.map((r) => (
             <div key={r.id} className="ride">
-              <b>{r.name}</b> — {r.address}
+              <b>{r.name}</b> — {r.address} — {RESTAURANT_CATEGORY_LABELS[r.category]}
               {r.description ? <><br /><span className="muted">{r.description}</span></> : null}
               <br /><button className="btn" onClick={() => { setSelectedRestaurantId(r.id); setCart({}) }}>شوف المنيو</button>
             </div>
@@ -2628,6 +2668,11 @@ export default function App() {
                 <button className="btn small" onClick={() => useMyLocation('pickup')}><IconPin /> موقعي الحالي</button>
                 <button className={pickMode === 'pickup' ? 'btn small active' : 'btn small'} onClick={() => setPickMode('pickup')}>حدّد على الخريطة</button>
               </div>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                {SERVICE_PLACES.map((p) => (
+                  <button key={p.label} type="button" className="btn small soft" onClick={() => pickPlace('pickup', p)}>📍 {p.label}</button>
+                ))}
+              </div>
             </div>
             <div>
               <label>{serviceKind === 'delivery' ? 'التوصيل فين؟' : 'الوجهة'}</label>
@@ -2650,6 +2695,11 @@ export default function App() {
                 <button className="btn small" onClick={() => useMyLocation('destination')}><IconPin /> موقعي الحالي</button>
                 <button className={pickMode === 'destination' ? 'btn small active' : 'btn small'} onClick={() => setPickMode('destination')}>حدّد على الخريطة</button>
               </div>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                {SERVICE_PLACES.map((p) => (
+                  <button key={p.label} type="button" className="btn small soft" onClick={() => pickPlace('destination', p)}>📍 {p.label}</button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -2663,20 +2713,21 @@ export default function App() {
 
           <h3><span className="icon-chip sm"><IconWallet /></span>{serviceKind === 'delivery' ? 'أجرة التوصيل' : 'سعر المشوار'}</h3>
           <div className="fare-stepper">
-            <button className="stepper-btn" onClick={() => setFareText(String(Math.max(FARE_MIN, fare - 5)))}>−</button>
+            <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.max(FARE_MIN, fare - 5))) }}>−</button>
             <input
               className="fare-number"
               inputMode="numeric"
               value={fareText}
               onChange={(e) => {
                 const v = e.target.value.replace(/[^0-9]/g, '')
+                fareTouchedRef.current = true
                 setFareText(v)
               }}
               onBlur={() => setFareText(String(fare))}
               aria-label="سعر المشوار"
             />
             <span className="fare-unit">جنيه</span>
-            <button className="stepper-btn" onClick={() => setFareText(String(Math.min(FARE_MAX, fare + 5)))}>+</button>
+            <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
           </div>
           <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
           <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <><IconPin /> {serviceKind === 'delivery' ? 'اطلب دليفري' : serviceKind === 'ride_motorcycle' ? 'اطلب موتوسيكل' : 'اطلب توكتوك'} — {money(fare)}</>}</button>
@@ -2763,7 +2814,7 @@ export default function App() {
   const walletEarnings = walletCompleted.reduce((s, r) => s + r.fare, 0)
   // العمولة = مجموع 5% لكل رحلة مكتملة لوحدها — نفس تقريب الخصم اللي بيتسجل
   // على السيرفر عند إنهاء الرحلة (commissionFor)، فالرقم المعروض مطابق للمديونية
-  const walletCommission = walletCompleted.reduce((s, r) => s + commissionFor(r.fare), 0)
+  const walletCommission = walletCompleted.reduce((s, r) => s + commissionFor(r.fare, state.admin.rideCommissionRate), 0)
   const walletNet = Math.round((walletEarnings - walletCommission) * 100) / 100
   const walletShown = walletFilter === 'completed' ? walletCompleted : walletFilter === 'cancelled' ? walletCancelled : walletMyRides
 
@@ -2814,7 +2865,7 @@ export default function App() {
           <b>{r.orderNo}</b> — {fmtDate(walletRideTime(r))} {fmtTime(walletRideTime(r))} — {r.status === 'completed' ? <span className="badge green">مكتملة ✅</span> : <span className="badge red">ملغاة ❌</span>}
           <br />من: {r.pickup.label} — إلى: {r.destination.label}
           <br />{r.status === 'completed'
-            ? <>الأجرة: <b>{money(r.fare)}</b> — العمولة: {money(commissionFor(r.fare))}</>
+            ? <>الأجرة: <b>{money(r.fare)}</b> — العمولة: {money(commissionFor(r.fare, state.admin.rideCommissionRate))}</>
             : <>الأجرة: <b>0 ج.م</b> — {r.cancelledBy === 'passenger' ? 'العميل' : 'أنت'} لغيتها{r.cancelReason ? ` — السبب: ${r.cancelReason}` : ''}</>}
         </div>
       ))}
@@ -2860,6 +2911,35 @@ export default function App() {
   }
   const idCardStatusLabel = (s: string) => (s === 'approved' ? 'معتمدة ✅' : s === 'rejected' ? 'مرفوضة ❌' : s === 'pending' ? 'مستنية المراجعة ⏳' : 'مفيش بطاقة')
 
+  // (v2) إحصائيات الأدمن — من الـ state الموجود، من غير تغيير سكيما
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayStartMs = todayStart.getTime()
+  const adminStats = {
+    ridesToday: state.rides.filter((r) => r.status === 'completed' && (r.completedAt ?? r.createdAt) >= todayStartMs).length,
+    foodOrdersToday: state.restaurantOrders.filter((o) => o.createdAt >= todayStartMs && o.status !== 'cancelled').length,
+    approvedRestaurants: state.restaurants.filter((r) => r.approved).length,
+    commissionsDue:
+      Math.round(
+        (state.rides.filter((r) => r.status === 'completed').reduce((s, r) => s + commissionFor(r.fare, state.admin.rideCommissionRate), 0) +
+          state.restaurantOrders.filter((o) => o.status !== 'cancelled').reduce((s, o) => s + o.commission, 0)) * 100,
+      ) / 100,
+  }
+  const adminActivity = [
+    ...state.rides.map((r) => ({ at: r.createdAt, text: `مشوار ${r.orderNo} — ${r.pickup.label} → ${r.destination.label} — ${money(r.fare)}` })),
+    ...state.restaurantOrders.map((o) => ({ at: o.createdAt, text: `طلب مطعم من ${o.restaurantName} — ${money(o.foodTotal + o.deliveryFee)} — ${RESTAURANT_ORDER_LABELS[o.status]}` })),
+    ...state.payments.map((p) => ({ at: p.createdAt, text: `تحويل من ${p.driverName} — ${money(p.amount)} — ${p.status}` })),
+    ...state.drivers.map((d) => ({ at: d.createdAt || 0, text: `سواق جديد سجّل: ${d.name} (${d.code})` })),
+  ]
+    .filter((e) => e.at > 0)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 10)
+  // (v2) شارة "جديد" على زر الإدارة — بطاقات مستنية + مطاعم غير معتمدة + دعم محتاج تدخلك
+  const pendingAdminCount =
+    pendingIdCards.length +
+    state.restaurants.filter((r) => !r.approved).length +
+    state.supportChats.filter((c) => c.needsAdmin).length
+
   /** الأدمن يقلب مفتاح الإطلاق (v44) — يشتغل فوراً من غير تحديث للتطبيق:
    *  الركاب بيقروا العلم من السيرفر في كل مرة قبل إنشاء الطلب. */
   async function toggleLaunch() {
@@ -2873,10 +2953,27 @@ export default function App() {
 
   // (v48) حفظ رقم محفظة الأدمن على السيرفر — قبل كده كان محلي بس على
   // جهاز صلاح، فالسواقين على موبايلاتهم كانوا بيشوفوا «لم يحددها الأدمن بعد».
+  // (v2) بيحفظ إعدادات الأدمن كلها (المحفظة + الأسعار + العمولات).
   function saveAdminWallet() {
     const a = stateRef.current.admin
-    void saveAdminSettings({ walletNumber: a.walletNumber, walletName: a.walletName })
-    showNotice('رقم المحفظة اتحفظ — السواقين هيشوفوه على موبايلاتهم.')
+    void saveAdminSettings(a)
+    showNotice('إعدادات الأدمن اتحفظت — السواقين والعملاء هيشوفوها على موبايلاتهم.')
+  }
+
+  /** (v2) حفظ الأسعار والعمولات بعد تقييدها بحدود منطقية. */
+  function saveAdminPricing() {
+    const a = stateRef.current.admin
+    const clamped: AdminSettings = {
+      ...a,
+      tuktukBaseFare: Math.max(FARE_MIN, Math.min(FARE_MAX, a.tuktukBaseFare || 15)),
+      motorcycleBaseFare: Math.max(FARE_MIN, Math.min(FARE_MAX, a.motorcycleBaseFare || 20)),
+      rideCommissionRate: Math.max(0, Math.min(0.5, a.rideCommissionRate || 0)),
+      restaurantCommissionRate: Math.max(0, Math.min(0.5, a.restaurantCommissionRate || 0)),
+      deliveryFee: Math.max(0, Math.min(FARE_MAX, a.deliveryFee || 8)),
+    }
+    update({ admin: clamped })
+    void saveAdminSettings(clamped)
+    showNotice('الأسعار والعمولات اتحفظت — بتتطبق على كل الأجهزة فوراً.')
   }
 
   /** يبعت رسالتي في شات الدعم (v50) — من رقمي ودوري واسمي. */
@@ -2949,31 +3046,84 @@ export default function App() {
     const r: Restaurant = {
       id: `R-${Date.now()}`,
       name: newRestaurantName.trim(),
+      category: newRestaurantCategory,
       ownerPhone: newRestaurantPhone.trim(),
       description: '',
       address: newRestaurantAddress.trim() || 'كفر حكيم',
       photoUrl: null,
       approved: true,
-      commissionRate: RESTAURANT_COMMISSION_RATE,
+      commissionRate: state.admin.restaurantCommissionRate,
       createdAt: Date.now(),
     }
-    update({ restaurants: [...state.restaurants, r] })
+    // (v2) أصناف أولية اختيارية — الأدمن يجهز المطعم بمنيو جاهز من أول يوم
+    const initialItems: MenuItem[] = []
+    const addInitialItem = (name: string, priceStr: string) => {
+      const n = name.trim()
+      const p = parseInt(priceStr, 10)
+      if (!n || !p) return
+      initialItems.push({ id: `M-${Date.now()}-${initialItems.length}`, restaurantId: r.id, name: n, price: p, description: '', photoUrl: null, available: true })
+    }
+    addInitialItem(newItem1Name, newItem1Price)
+    addInitialItem(newItem2Name, newItem2Price)
+    update({ restaurants: [...state.restaurants, r], menuItems: [...state.menuItems, ...initialItems] })
+    initialItems.forEach((it) => void saveMenuItem(it))
     await saveRestaurant(r)
     setNewRestaurantName('')
     setNewRestaurantPhone('')
     setNewRestaurantAddress('')
-    showNotice(`المطعم ${r.name} اتضاف واتعتمد — صاحبه يقدر يدير المنيو من حسابه.`)
+    setNewItem1Name('')
+    setNewItem1Price('')
+    setNewItem2Name('')
+    setNewItem2Price('')
+    showNotice(`المطعم ${r.name} اتضاف واتعتمد${initialItems.length > 0 ? ` — ومعاه ${initialItems.length} صنف في المنيو` : ''} — صاحبه يقدر يدير المنيو من حسابه.`)
   }
 
   const adminView = (
     <div className="card">
       <h2><span className="icon-chip"><IconShield /></span>الإدارة — صلاح</h2>
+      <h3><span className="icon-chip sm">📊</span>إحصائيات اليوم</h3>
+      <div className="grid">
+        <div className="box"><b>{adminStats.ridesToday}</b><br /><span className="muted">مشوار مكتمل اليوم</span></div>
+        <div className="box"><b>{adminStats.foodOrdersToday}</b><br /><span className="muted">طلب مطعم اليوم</span></div>
+        <div className="box"><b>{adminStats.approvedRestaurants}</b><br /><span className="muted">مطعم معتمد</span></div>
+        <div className="box"><b>{money(adminStats.commissionsDue)}</b><br /><span className="muted">عمولات مستحقة</span></div>
+      </div>
+      <h3><span className="icon-chip sm">🕐</span>سجل النشاط</h3>
+      {adminActivity.length === 0 && <p className="muted">لسه مفيش نشاط.</p>}
+      {adminActivity.map((e, i) => (
+        <div key={`${e.at}-${i}`} className="ride">• {e.text}<br /><span className="muted">{fmtTime(e.at)}</span></div>
+      ))}
       <h3><span className="icon-chip sm"><IconWallet /></span>رقم محفظتي</h3>
       <div className="grid">
         <input placeholder="رقم المحفظة" value={state.admin.walletNumber} onChange={(e) => update({ admin: { ...state.admin, walletNumber: e.target.value } })} onBlur={saveAdminWallet} />
         <input placeholder="الاسم على المحفظة" value={state.admin.walletName} onChange={(e) => update({ admin: { ...state.admin, walletName: e.target.value } })} onBlur={saveAdminWallet} />
       </div>
       <button className="btn small" onClick={saveAdminWallet}><IconCheck /> حفظ رقم المحفظة</button>
+      <h3><span className="icon-chip sm">💰</span>أسعار وعمولات التطبيق</h3>
+      <p className="muted">بتتطبق على كل الأجهزة فوراً من غير تحديث للتطبيق — السعر الافتراضي اللي يظهر للعميل، والعمولة اللي بتتخصم من السواق بعد كل رحلة.</p>
+      <div className="grid">
+        <div>
+          <label>فتحة عداد التوكتوك (جنيه)</label>
+          <input inputMode="numeric" value={String(state.admin.tuktukBaseFare)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, tuktukBaseFare: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>فتحة عداد الموتوسيكل (جنيه)</label>
+          <input inputMode="numeric" value={String(state.admin.motorcycleBaseFare)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, motorcycleBaseFare: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>عمولة المشاوير والدليفري (%)</label>
+          <input inputMode="numeric" value={String(Math.round(state.admin.rideCommissionRate * 100))} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, rideCommissionRate: v === '' ? 0 : parseInt(v, 10) / 100 } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>عمولة المطاعم الافتراضية (%)</label>
+          <input inputMode="numeric" value={String(Math.round(state.admin.restaurantCommissionRate * 100))} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, restaurantCommissionRate: v === '' ? 0 : parseInt(v, 10) / 100 } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>أجرة توصيل المطاعم الافتراضية (جنيه)</label>
+          <input inputMode="numeric" value={String(state.admin.deliveryFee)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, deliveryFee: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+        </div>
+      </div>
+      <button className="btn small" onClick={saveAdminPricing}><IconCheck /> حفظ الأسعار والعمولات</button>
       <h3><span className="icon-chip sm"><IconSettings /></span>تشغيل الخدمة للركاب 🚀</h3>
       <p className="muted">
         {launch.launched
@@ -2995,11 +3145,23 @@ export default function App() {
         </div>
       )}
       <h3><span className="icon-chip sm">🍽️</span>المطاعم المتعاقد معاها</h3>
-      <p className="muted">عمولة المطاعم الافتراضية {Math.round(RESTAURANT_COMMISSION_RATE * 100)}% من سعر الأكل — بتتغير لكل مطعم.</p>
+      <p className="muted">عمولة المطاعم الافتراضية {Math.round(state.admin.restaurantCommissionRate * 100)}% من سعر الأكل — بتتغير لكل مطعم.</p>
       <div className="grid">
         <input placeholder="اسم المطعم" value={newRestaurantName} onChange={(e) => setNewRestaurantName(e.target.value)} />
         <input placeholder="رقم تليفون صاحب المطعم" value={newRestaurantPhone} onChange={(e) => setNewRestaurantPhone(e.target.value)} />
         <input placeholder="العنوان (كفر حكيم / كرداسة / أبو رواش)" value={newRestaurantAddress} onChange={(e) => setNewRestaurantAddress(e.target.value)} />
+        <select value={newRestaurantCategory} onChange={(e) => setNewRestaurantCategory(e.target.value as RestaurantCategory)} aria-label="تصنيف المطعم">
+          {(Object.keys(RESTAURANT_CATEGORY_LABELS) as RestaurantCategory[]).map((c) => (
+            <option key={c} value={c}>{RESTAURANT_CATEGORY_LABELS[c]}</option>
+          ))}
+        </select>
+      </div>
+      <p className="muted">أصناف أولية (اختياري — عشان المطعم يظهر بمنيو جاهز من أول يوم):</p>
+      <div className="grid">
+        <input placeholder="اسم الوجبة الأولى" value={newItem1Name} onChange={(e) => setNewItem1Name(e.target.value)} />
+        <input placeholder="السعر (جنيه)" inputMode="numeric" value={newItem1Price} onChange={(e) => setNewItem1Price(e.target.value.replace(/[^0-9]/g, ''))} />
+        <input placeholder="اسم الوجبة الثانية" value={newItem2Name} onChange={(e) => setNewItem2Name(e.target.value)} />
+        <input placeholder="السعر (جنيه)" inputMode="numeric" value={newItem2Price} onChange={(e) => setNewItem2Price(e.target.value.replace(/[^0-9]/g, ''))} />
       </div>
       <button className="btn" onClick={() => void addRestaurant()}>أضف مطعم ✅</button>
       {state.restaurants.length === 0 && <p>لسه مفيش مطاعم.</p>}
@@ -3009,6 +3171,21 @@ export default function App() {
           <br />عمولة: {Math.round(r.commissionRate * 100)}% — طلبات: {state.restaurantOrders.filter((o) => o.restaurantId === r.id).length} — عمولات مستحقة: {money(state.restaurantOrders.filter((o) => o.restaurantId === r.id && o.status !== 'cancelled').reduce((s, o) => s + o.commission, 0))}
           <div className="row">
             <button className="btn small" onClick={() => void saveRestaurant({ ...r, approved: !r.approved })}>{r.approved ? 'إخفاء المطعم' : 'اعتماد المطعم'}</button>
+            <label>العمولة:
+              <select
+                value={String(Math.round(r.commissionRate * 100))}
+                onChange={(e) => {
+                  const updated = { ...r, commissionRate: parseInt(e.target.value, 10) / 100 }
+                  update({ restaurants: state.restaurants.map((x) => (x.id === r.id ? updated : x)) })
+                  void saveRestaurant(updated)
+                  showNotice(`عمولة ${r.name} بقت ${e.target.value}% من سعر الأكل.`)
+                }}
+              >
+                <option value="5">5%</option>
+                <option value="10">10%</option>
+                <option value="15">15%</option>
+              </select>
+            </label>
           </div>
         </div>
       ))}
@@ -3410,7 +3587,7 @@ export default function App() {
         {appRole === 'passenger' && <button className="btn small" onClick={() => chooseRole('driver')}><IconDriver /> أنا كابتن — دخول السواقين</button>}
         {appRole === 'driver' && (
           <div className="footer-links">
-            {isAdmin && <button className="btn small" onClick={() => setRole('admin')}><IconShield /> الإدارة</button>}
+            {isAdmin && <button className="btn small" onClick={() => setRole('admin')}><IconShield /> الإدارة{pendingAdminCount > 0 ? ` (${pendingAdminCount} 🆕)` : ''}</button>}
             <button className="btn small soft" onClick={() => chooseRole('passenger')}><IconSwap /> تبديل — أنا راكب</button>
           </div>
         )}
