@@ -558,6 +558,16 @@ export default function App() {
     Math.min(FARE_MAX, parseInt(fareText || '0', 10) || FARE_MIN),
   )
 
+  // (v8) أجرة الدليفري بالمسافة: قاعدة + جنيه لكل كيلومتر — المسافة من
+  // إحداثيات المحل وعنوان التوصيل (هافرساين)، والكيلومتر الجزئي يتحسب
+  // كيلو كامل (3.2 كم = 4 كم). مثال: تلفزيون على مسافة 4 كم = 15 + 5×4 = 35 جنيه.
+  // القاعدة وسعر الكيلو من إعدادات الأدمن (افتراضي 15 و5) — مشاوير التوكتوك
+  // والموتوسيكل وأجرة توصيل المطاعم زي ما هي (عداد تفاوضي / ثابت).
+  const deliveryBaseFee = state.admin.deliveryBaseFee ?? 15
+  const deliveryPerKm = state.admin.deliveryPerKm ?? 5
+  const deliveryKm = pickup && destination ? Math.ceil(distanceKm(pickup, destination)) : 0
+  const deliveryFare = Math.max(FARE_MIN, Math.min(FARE_MAX, deliveryBaseFee + deliveryPerKm * deliveryKm))
+
   // (v2) السعر الافتراضي من إعدادات الأدمن (فتحة العداد حسب نوع الخدمة) —
   // بيتحدث لما الإعدادات توصل من السيرفر، بس لو العميل لسه معدلش السعر بنفسه.
   const fareTouchedRef = useRef(false)
@@ -1319,7 +1329,9 @@ export default function App() {
         passengerRating: state.passenger.ratingAvg,
         pickup: from,
         destination: to,
-      fare,
+      // (v8) الدليفري سعره محسوب بالمسافة (15 + 5 لكل كم) مش عداد تفاوضي —
+      // المشاوير بتاخد سعر العداد زي ما هو.
+      fare: serviceKind === 'delivery' ? deliveryFare : fare,
       serviceKind,
       vehicleType: serviceKind === 'ride_tuktuk' ? 'tuk-tuk' : 'motorcycle',
       deliveryNote: serviceKind === 'delivery' ? deliveryNote.trim() || null : null,
@@ -2987,25 +2999,16 @@ export default function App() {
               />
               <p className="muted">دوس على الخريطة لتحديد {pickMode === 'pickup' ? 'مكان المحل' : 'عنوان التوصيل'} — أو استخدم زرار «موقعي الحالي».</p>
               <h3><span className="icon-chip sm"><IconWallet /></span>أجرة التوصيل</h3>
-              <div className="fare-stepper">
-                <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.max(FARE_MIN, fare - 5))) }}>−</button>
-                <input
-                  className="fare-number"
-                  inputMode="numeric"
-                  value={fareText}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/[^0-9]/g, '')
-                    fareTouchedRef.current = true
-                    setFareText(v)
-                  }}
-                  onBlur={() => setFareText(String(fare))}
-                  aria-label="أجرة التوصيل"
-                />
-                <span className="fare-unit">جنيه</span>
-                <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
-              </div>
-              <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
-              <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <>📦 اطلب دليفري — {money(fare)}</>}</button>
+              {pickup && destination ? (
+                <>
+                  <p>المسافة من المحل لعنوان التوصيل: <b>{deliveryKm} كم</b></p>
+                  <p>الأجرة: {deliveryBaseFee} + {deliveryPerKm} × {deliveryKm} كم = <b>{deliveryFare} جنيه</b></p>
+                  <p className="muted">السعر ثابت بالمسافة — {deliveryBaseFee} جنيه + {deliveryPerKm} جنيه لكل كيلومتر (الكيلومتر الجزئي يتحسب كيلو كامل).</p>
+                </>
+              ) : (
+                <p className="muted">حدد مكان المحل وعنوان التوصيل الأول عشان نحسب الأجرة بالمسافة.</p>
+              )}
+              <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <>📦 اطلب دليفري — {money(deliveryFare)}</>}</button>
             </div>
           )}
           {custTab === 'orders' && passengerTripsView}
@@ -3234,6 +3237,8 @@ export default function App() {
       rideCommissionRate: Math.max(0, Math.min(0.5, a.rideCommissionRate || 0)),
       restaurantCommissionRate: Math.max(0, Math.min(0.5, a.restaurantCommissionRate || 0)),
       deliveryFee: Math.max(0, Math.min(FARE_MAX, a.deliveryFee || 8)),
+      deliveryBaseFee: Math.max(0, Math.min(FARE_MAX, a.deliveryBaseFee || 15)),
+      deliveryPerKm: Math.max(0, Math.min(FARE_MAX, a.deliveryPerKm || 5)),
     }
     update({ admin: clamped })
     void saveAdminSettings(clamped)
@@ -3401,6 +3406,14 @@ export default function App() {
         <div>
           <label>أجرة توصيل المطاعم الافتراضية (جنيه)</label>
           <input inputMode="numeric" value={String(state.admin.deliveryFee)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, deliveryFee: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>أجرة الدليفري — القاعدة الثابتة (جنيه)</label>
+          <input inputMode="numeric" value={String(state.admin.deliveryBaseFee ?? 15)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, deliveryBaseFee: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>أجرة الدليفري — جنيه لكل كيلومتر</label>
+          <input inputMode="numeric" value={String(state.admin.deliveryPerKm ?? 5)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, deliveryPerKm: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
         </div>
       </div>
       <button className="btn small" onClick={saveAdminPricing}><IconCheck /> حفظ الأسعار والعمولات</button>

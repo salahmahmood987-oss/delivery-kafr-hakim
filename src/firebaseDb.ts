@@ -155,6 +155,8 @@ export async function loadAdminSettings(): Promise<AdminSettings | null> {
     rideCommissionRate: num(docData.rideCommissionRate, COMMISSION_RATE),
     restaurantCommissionRate: num(docData.restaurantCommissionRate, RESTAURANT_COMMISSION_RATE),
     deliveryFee: num(docData.deliveryFee, 8),
+    deliveryBaseFee: num(docData.deliveryBaseFee, 15),
+    deliveryPerKm: num(docData.deliveryPerKm, 5),
   }
 }
 

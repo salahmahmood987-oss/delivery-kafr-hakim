@@ -300,6 +300,10 @@ export interface AdminSettings {
   restaurantCommissionRate: number
   /** أجرة توصيل المطاعم الافتراضية (جنيه) */
   deliveryFee: number
+  /** أجرة الدليفري (طلب خاص): القاعدة الثابتة (جنيه) — الأدمن يغيّرها من لوحة الإدارة */
+  deliveryBaseFee: number
+  /** أجرة الدليفري (طلب خاص): جنيه لكل كيلومتر — الكيلومتر الجزئي يتحسب كيلو كامل */
+  deliveryPerKm: number
 }
 
 /** رسالة واحدة في شات الدعم (v50) — الوقت ISO عشان يترتب صح من أي جهاز */
