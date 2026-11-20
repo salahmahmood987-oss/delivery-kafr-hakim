@@ -435,6 +435,13 @@ export default function App() {
   const [fareText, setFareText] = useState('25')
   // دليفري كفر حكيم v1 — نوع الخدمة اللي العميل بيطلبها (الأربع خدمات)
   const [serviceKind, setServiceKind] = useState<ServiceKind>('ride_tuktuk')
+  // (v6) تبويبات العميل على شبه الديمو: الرئيسية / مشوار / مطاعم / طلب خاص / طلباتي
+  const [custTab, setCustTab] = useState<'home' | 'rides' | 'food' | 'errand' | 'orders'>('home')
+  // (v6) تبويبات لوحة الإدارة الفرعية على شبه الديمو
+  const [adminTab, setAdminTab] = useState<'stats' | 'add-store' | 'pricing' | 'stores' | 'more'>('stats')
+  // (v6) مودال منيو المطعم + درج السلة (بدل العرض المضمّن جوّه الصفحة)
+  const [menuModalOpen, setMenuModalOpen] = useState(false)
+  const [cartOpen, setCartOpen] = useState(false)
   // وصف طلب الدليفري — "هاتلي إيه" (من أي محل/صيدلية/شخص)
   const [deliveryNote, setDeliveryNote] = useState('')
   // المطاعم: المطعم المفتوح + السلة (صنف → كمية) + ملاحظات الطلب
@@ -1980,10 +1987,25 @@ export default function App() {
     }
   }
 
-  // الصفحة الرئيسية للكابتن: الطلبات المتاحة للقبول فقط
+  // الصفحة الرئيسية للكابتن (v6) — لوحة داكنة على شبه الديمو: حالة العمل + نوع المركبة + مكسب اليوم + الطلبات
+  // مكسب اليوم من رحلات الكابتن نفسه بس (محسوب هنا قبل التعريف لأن حسابات المحفظة بتيجي بعده في الملف)
+  const driverToday = (() => {
+    const start = periodStartMs('day')
+    const done = state.rides.filter((r) => r.driverCode === state.driver.code && r.status === 'completed' && walletRideTime(r) >= start)
+    return {
+      count: done.length,
+      earnings: done.reduce((s, r) => s + r.fare, 0),
+      commission: done.reduce((s, r) => s + commissionFor(r.fare, state.admin.rideCommissionRate), 0),
+    }
+  })()
   const driverView = (
-    <div className="card">
-      <h2><span className="icon-chip"><IconList /></span>الطلبات المتاحة</h2>
+    <div className="card kh-dark">
+      <div className="kh-drv-head">
+        <div>
+          <span className="lbl">لوحة عمل سائقي كفر حكيم 🛺</span>
+          <b>الكابتن {state.driver.name || '—'} ({VEHICLE_LABELS[state.driver.vehicleType || 'tuk-tuk']})</b>
+        </div>
+      </div>
       <button
         className={`online-toggle ${state.driver.online ? 'on' : 'off'}`}
         onClick={() => void goOnlineToggle()}
@@ -1994,6 +2016,21 @@ export default function App() {
         </span>
       </button>
       <button className="btn small" onClick={ring}><IconBell /> جرّب صوت التنبيه</button>
+      <div className="kh-veh" style={{ marginTop: 10 }}>
+        <button type="button" className={state.driver.vehicleType === 'tuk-tuk' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'tuk-tuk' } })}>🛺 توكتوك</button>
+        <button type="button" className={state.driver.vehicleType === 'motorcycle' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'motorcycle' } })}>🏍️ موتوسيكل</button>
+      </div>
+      <div className="kh-drv-earn">
+        <div>
+          <div className="lbl">مشاوير اليوم المكتملة</div>
+          <div className="val">{driverToday.count} مشاوير ({money(driverToday.earnings)})</div>
+        </div>
+        <div style={{ textAlign: 'left' }}>
+          <div className="lbl">عمولة المنظومة</div>
+          <div className="val green">{money(driverToday.commission)}</div>
+        </div>
+      </div>
+      <h3><span className="icon-chip sm"><IconList /></span>طلبات المشاوير الواردة حالياً</h3>
       {state.driver.online && (state.driver.currentLat == null || state.driver.currentLng == null) && (
         <p className="warn">⚠️ موقعك مش واصل — شغّل الـ GPS عشان المسافات والطلبات تظهر صح.</p>
       )}
@@ -2314,6 +2351,8 @@ export default function App() {
   const selectedMenu = selectedRestaurant ? state.menuItems.filter((m) => m.restaurantId === selectedRestaurant.id && m.available) : []
   const cartItems = selectedMenu.filter((m) => (cart[m.id] ?? 0) > 0).map((m) => ({ ...m, qty: cart[m.id] ?? 0 }))
   const cartFoodTotal = cartItems.reduce((s, i) => s + i.price * i.qty, 0)
+  // (v6) عدد الأصناف في السلة — الشارة اللي على زر السلة في الشريط العلوي
+  const cartCount = cartItems.reduce((s, i) => s + i.qty, 0)
 
   // مزامنة طلبات المطاعم — الأدمن يشوف الكل، العميل يشوف طلباته + طلبات
   // مطاعمه (لو صاحب مطعم)، وكابتن الموتوسيكل يشوف الجاهزة للتوصيل
@@ -2394,50 +2433,67 @@ export default function App() {
       setCart({})
       setOrderNote('')
       setSelectedRestaurantId(null)
+      // (v6) اقفل مودال المنيو ودرج السلة بعد نجاح الطلب
+      setMenuModalOpen(false)
+      setCartOpen(false)
       showNotice(`طلبك من ${selectedRestaurant.name} اتبعت — الإجمالي ${money(foodTotal + fare)} (الأكل ${money(foodTotal)} + التوصيل ${money(fare)}) — الدفع كاش عند الاستلام 💵`)
     } finally {
       setOrderBusy(false)
     }
   }
 
-  /** متصفح المطاعم — القايمة، وبعدين منيو المطعم المختار + السلة */
-  const restaurantBrowser = (
+  /** بطاقة مطعم واحدة (v6) — بتتستخدم في الرئيسية (معاينة) وفي تبويب المطاعم */
+  const restaurantRow = (r: Restaurant) => (
+    <button key={r.id} type="button" className="kh-rest-card" onClick={() => { setSelectedRestaurantId(r.id); setCart({}); setMenuModalOpen(true) }}>
+      <span className="kh-rest-ic">{r.category === 'pharmacy' ? '💊' : r.category === 'grill' ? '🥩' : r.category === 'pizza' ? '🍕' : r.category === 'ful' ? '🧆' : '🍽️'}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <b>{r.name}</b>
+        <span className="muted">{r.address} — {RESTAURANT_CATEGORY_LABELS[r.category]}</span>
+        {r.description ? <><br /><span className="muted">{r.description}</span></> : null}
+      </span>
+      <span className="kh-rest-new">شوف المنيو ←</span>
+    </button>
+  )
+
+  /** قايمة المطاعم (v6 — تبويب المطاعم) — شرايح التصنيف + الكروت، والمنيو بيتفتح في مودال */
+  const restaurantList = (
     <div>
-      {!selectedRestaurant ? (
-        <>
-          <h3>🍽️ المطاعم المتعاقد معاها</h3>
-          <div className="row" style={{ flexWrap: 'wrap' }}>
-            <button className={restaurantCategoryFilter === 'all' ? 'btn small' : 'btn small soft'} onClick={() => setRestaurantCategoryFilter('all')}>الكل</button>
-            {(Object.keys(RESTAURANT_CATEGORY_LABELS) as RestaurantCategory[]).map((c) => (
-              <button key={c} className={restaurantCategoryFilter === c ? 'btn small' : 'btn small soft'} onClick={() => setRestaurantCategoryFilter(c)}>{RESTAURANT_CATEGORY_LABELS[c]}</button>
-            ))}
-          </div>
-          {approvedRestaurants.length === 0 && <p className="muted">لسه مفيش مطاعم متعاقد معاها — الأدمن بيضيف المطاعم من لوحة الإدارة.</p>}
-          {approvedRestaurants.length > 0 && filteredRestaurants.length === 0 && <p className="muted">مفيش مطاعم في التصنيف ده لسه.</p>}
-          {filteredRestaurants.map((r) => (
-            <div key={r.id} className="ride">
-              <b>{r.name}</b> — {r.address} — {RESTAURANT_CATEGORY_LABELS[r.category]}
-              {r.description ? <><br /><span className="muted">{r.description}</span></> : null}
-              <br /><button className="btn" onClick={() => { setSelectedRestaurantId(r.id); setCart({}) }}>شوف المنيو</button>
-            </div>
-          ))}
-        </>
-      ) : (
-        <>
-          <div className="row">
-            <button className="btn small soft" onClick={() => { setSelectedRestaurantId(null); setCart({}) }}><IconBack /> كل المطاعم</button>
-            <h3>{selectedRestaurant.name}</h3>
-          </div>
-          <p className="muted">{selectedRestaurant.address} — الدفع كاش عند الاستلام 💵 — التوصيل بموتوسيكل 🏍️</p>
+      <h3>🍽️ المطاعم والمحلات المتاحة</h3>
+      <p className="muted">تحدث فوراً مع لوحة الإدارة ⚡</p>
+      <div className="kh-chips">
+        <button type="button" className={restaurantCategoryFilter === 'all' ? 'kh-chip active' : 'kh-chip'} onClick={() => setRestaurantCategoryFilter('all')}>الكل</button>
+        {(Object.keys(RESTAURANT_CATEGORY_LABELS) as RestaurantCategory[]).map((c) => (
+          <button key={c} type="button" className={restaurantCategoryFilter === c ? 'kh-chip active' : 'kh-chip'} onClick={() => setRestaurantCategoryFilter(c)}>{RESTAURANT_CATEGORY_LABELS[c]}</button>
+        ))}
+      </div>
+      {approvedRestaurants.length === 0 && <p className="muted">لسه مفيش مطاعم متعاقد معاها — الأدمن بيضيف المطاعم من لوحة الإدارة.</p>}
+      {approvedRestaurants.length > 0 && filteredRestaurants.length === 0 && <p className="muted">مفيش مطاعم في التصنيف ده لسه.</p>}
+      {filteredRestaurants.map((r) => restaurantRow(r))}
+    </div>
+  )
+
+  /** مودال منيو المطعم (v6) — ورقة سفلية على شبه الديمو: الأصناف + السلة + عنوان التوصيل */
+  const menuModal = selectedRestaurant && menuModalOpen ? (
+    <div className="kh-sheet-overlay" onClick={() => setMenuModalOpen(false)}>
+      <div className="kh-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="kh-sheet-head">
+          <button type="button" className="kh-sheet-close" onClick={() => setMenuModalOpen(false)} aria-label="إغلاق">✕</button>
+          <h3>{selectedRestaurant.name}</h3>
+          <p>{selectedRestaurant.address} — الدفع كاش عند الاستلام 💵 — التوصيل بموتوسيكل 🏍️</p>
+        </div>
+        <div className="kh-sheet-body">
           {selectedMenu.length === 0 && <p className="muted">المنيو لسه فاضي — صاحب المطعم لسه مضافش أصناف.</p>}
           {selectedMenu.map((m) => (
-            <div key={m.id} className="ride">
-              <b>{m.name}</b> — {money(m.price)}
-              {m.description ? <><br /><span className="muted">{m.description}</span></> : null}
-              <div className="row">
-                <button className="stepper-btn" onClick={() => setCart({ ...cart, [m.id]: Math.max(0, (cart[m.id] ?? 0) - 1) })}>−</button>
+            <div key={m.id} className="kh-menu-item">
+              <div className="info">
+                <b>{m.name}</b>
+                {m.description ? <span className="muted">{m.description}</span> : null}
+                <span className="price">{money(m.price)}</span>
+              </div>
+              <div className="kh-qty">
+                <button type="button" onClick={() => setCart({ ...cart, [m.id]: Math.max(0, (cart[m.id] ?? 0) - 1) })}>−</button>
                 <b>{cart[m.id] ?? 0}</b>
-                <button className="stepper-btn" onClick={() => setCart({ ...cart, [m.id]: (cart[m.id] ?? 0) + 1 })}>+</button>
+                <button type="button" onClick={() => setCart({ ...cart, [m.id]: (cart[m.id] ?? 0) + 1 })}>+</button>
               </div>
             </div>
           ))}
@@ -2456,18 +2512,72 @@ export default function App() {
                 </div>
               </div>
               <input placeholder="ملاحظات للمطعم (اختياري)" value={orderNote} onChange={(e) => setOrderNote(e.target.value)} />
-              <button className="btn big" onClick={() => void placeRestaurantOrder()} disabled={orderBusy}>{orderBusy ? 'بيتبعت…' : <>اطلب — {money(cartFoodTotal + fare)} (كاش 💵)</>}</button>
             </div>
           )}
-        </>
-      )}
+        </div>
+        <div className="kh-sheet-foot">
+          <button className="btn big" onClick={() => void placeRestaurantOrder()} disabled={orderBusy || cartItems.length === 0}>{orderBusy ? 'بيتبعت…' : <>اطلب — {money(cartFoodTotal + fare)} (كاش 💵)</>}</button>
+          <button className="btn big soft" onClick={() => setMenuModalOpen(false)}>إغلاق</button>
+        </div>
+      </div>
     </div>
-  )
+  ) : null
+
+  /** درج السلة (v6) — أصناف السلة + الإجمالي مع التوصيل + زر التأكيد */
+  const cartDrawer = cartOpen ? (
+    <div className="kh-sheet-overlay" onClick={() => setCartOpen(false)}>
+      <div className="kh-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="kh-sheet-head">
+          <button type="button" className="kh-sheet-close" onClick={() => setCartOpen(false)} aria-label="إغلاق">✕</button>
+          <h3>🧺 سلة مشترياتك</h3>
+          <p>{selectedRestaurant ? selectedRestaurant.name : 'لسه مخترتش مطعم'}</p>
+        </div>
+        <div className="kh-sheet-body">
+          {cartItems.length === 0 && <p className="muted">سلة التسوق فارغة — اختار أصناف من منيو أي مطعم.</p>}
+          {cartItems.map((i) => (
+            <div key={i.id} className="kh-menu-item">
+              <div className="info"><b>{i.name} (×{i.qty})</b><span className="price">{money(i.price * i.qty)}</span></div>
+              <div className="kh-qty">
+                <button type="button" onClick={() => setCart({ ...cart, [i.id]: Math.max(0, (cart[i.id] ?? 0) - 1) })}>−</button>
+                <b>{i.qty}</b>
+                <button type="button" onClick={() => setCart({ ...cart, [i.id]: (cart[i.id] ?? 0) + 1 })}>+</button>
+              </div>
+            </div>
+          ))}
+          {cartItems.length > 0 && (
+            <div>
+              <div>
+                <label>عنوان التوصيل — حدّده على الخريطة فوق أو دوس «موقعي الحالي»</label>
+                <div className="row">
+                  <button className="btn small" onClick={() => useMyLocation('destination')}><IconPin /> موقعي الحالي</button>
+                  <span className="muted">{destination ? destination.label : 'لسه متحددش'}</span>
+                </div>
+              </div>
+              <input placeholder="ملاحظات للمطعم (اختياري)" value={orderNote} onChange={(e) => setOrderNote(e.target.value)} />
+            </div>
+          )}
+        </div>
+        <div className="kh-sheet-foot">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span><b>الإجمالي التقديري مع التوصيل:</b></span>
+            <b style={{ fontSize: 18 }}>{money(cartFoodTotal + fare)}</b>
+          </div>
+          <button className="btn big" onClick={() => void placeRestaurantOrder()} disabled={orderBusy || cartItems.length === 0}>{orderBusy ? 'بيتبعت…' : 'تأكيد وإرسال الطلب للمطعم والسائق 🛵'}</button>
+        </div>
+      </div>
+    </div>
+  ) : null
 
   /** واجهة صاحب المطعم — منيوه + الطلبات اللي وصلت مطعمه */
   const restaurantView = (
     <div className="card">
-      <h2><span className="icon-chip">🍽️</span>مطعمك</h2>
+      <div className="kh-rest-head">
+        <div>
+          <span className="lbl">إدارة مطاعم كفر حكيم</span>
+          <b>{myRestaurants[0]?.name ?? 'مطعمك'} 🍽️</b>
+        </div>
+        <span className="kh-pill">استقبال الطلبات متصل</span>
+      </div>
       {myRestaurants.length === 0 && <p className="muted">أنت مش مسجل كصاحب مطعم — الأدمن يضيف مطعمك برقمك من لوحة الإدارة.</p>}
       {myRestaurants.map((r) => {
         const myMenu = state.menuItems.filter((m) => m.restaurantId === r.id)
@@ -2524,8 +2634,58 @@ export default function App() {
     </div>
   )
 
+  // طلبات العميل: كل طلباته بحالتها وأوقاتها
+  const passengerTripsView = (
+    <div className="card">
+      <h2><span className="icon-chip"><IconList /></span>طلباتي</h2>
+      {myPassengerRides.length === 0 && <p>لسه معملتش أي طلبات.</p>}
+      <h3>🍽️ طلبات المطاعم</h3>
+      {state.restaurantOrders.filter((o) => state.passenger && o.customerPhone === state.passenger.phone).length === 0 && <p className="muted">لسه معملتش أي طلبات أكل.</p>}
+      {state.restaurantOrders.filter((o) => state.passenger && o.customerPhone === state.passenger.phone).sort((a, b) => b.createdAt - a.createdAt).map((o) => (
+        <div key={o.id} className="ride">
+          <b>{o.id}</b> — {o.restaurantName} — {RESTAURANT_ORDER_LABELS[o.status]} — <b>{money(o.foodTotal + o.deliveryFee)}</b> (كاش 💵)
+          <br />{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')} — التوصيل: {o.address}
+          {o.driverName ? <><br />الكابتن: {o.driverName} — <a className="phone-chip" href={`tel:${o.driverPhone}`}><IconPhone /> {o.driverPhone}</a></> : null}
+        </div>
+      ))}
+      {myPassengerRides.map((r) => (
+        <div key={r.orderNo} className="ride">
+          <b>{r.orderNo}</b> — {r.status === 'matched' || r.status === 'driver_arrived' || r.status === 'on_trip' ? (<>{avatar(r.driverPhotoUrl, r.driverName || 'الكابتن')} الكابتن {r.driverName}</>) : rideStatusLabel(r.status)} — <b>{money(r.fare)}</b>
+          <br />من: {r.pickup.label} — إلى: {r.destination.label}
+          {rideTimes(r)}
+          {r.status === 'cancelled' && r.cancelReason && <p className="muted">سبب الإلغاء: {r.cancelReason}</p>}
+          {r.status === 'completed' && r.passengerRatingForDriver === null && (
+            <div>
+              <p>قيّم الكابتن بعد الرحلة (تقييمك يظهر للعميل اللي بعده):</p>
+              {stars(rateDriver, (n) => { setRateDriver(n); submitRating(r.orderNo, 'passenger', n) })}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+
+  // الشريط العلوي الداكن للعميل (v6) — شعار + اسم + موقع + أزرار (سلة/دعم/ملف)
+  const passengerHeader = (
+    <header className="kh-topbar">
+      <div className="kh-topbar-row">
+        <img src={logoUrl} alt="دليفري كفر حكيم" className="kh-topbar-logo" />
+        <div className="kh-topbar-title">
+          <b>دليفري كفر حكيم</b>
+          <span>📍 {pickup && pickup.label !== 'موقعي الحالي' ? pickup.label : 'كفر حكيم — كرداسة — أبو رواش'}</span>
+        </div>
+        <div className="kh-topbar-actions">
+          {myRestaurants.length > 0 && <button type="button" className="kh-icon-btn" onClick={() => setRole('restaurant')} aria-label="مطعمي">🍽️</button>}
+          <button type="button" className="kh-icon-btn" onClick={() => setRole('support')} aria-label="الدعم">💬{hasSupportReply ? ' 🔴' : ''}</button>
+          <button type="button" className="kh-icon-btn" onClick={() => setRole('profile')} aria-label="الملف الشخصي">👤</button>
+          <button type="button" className="kh-icon-btn amber" onClick={() => setCartOpen(true)} aria-label="السلة">🧺{cartCount > 0 && <span className="kh-cart-badge">{cartCount}</span>}</button>
+        </div>
+      </div>
+    </header>
+  )
+
   // نموذج التسجيل برقم التليفون — مشترك بين الرئيسية والملف الشخصي
-  // الصفحة الرئيسية للعميل: إنشاء طلب فقط
+  // الصفحة الرئيسية للعميل (v6): تبويبات على شبه الديمو — الرئيسية / مشوار / مطاعم / طلب خاص / طلباتي
   const passengerView = (
     <>
       {activeRide ? (
@@ -2620,6 +2780,40 @@ export default function App() {
         </>
       ) : (
         <>
+          {passengerHeader}
+          {custTab === 'home' && (
+            <>
+              <div className="kh-hero">
+                <span className="kh-hero-tag">خدمة سريعة داخل القرية ⚡</span>
+                <h2>عايز مشوار توكتوك أو موتوسيكل؟</h2>
+                <p>سائقي كفر حكيم جاهزون لتوصيلك فوراً وبأفضل سعر.</p>
+                <button className="btn small" onClick={() => setCustTab('rides')}>اطلب مشوارك الآن</button>
+              </div>
+              <div className="kh-svc-grid" style={{ marginTop: 12 }}>
+                <button type="button" className="kh-svc-tile amber" onClick={() => { setServiceKind('ride_tuktuk'); setCustTab('rides') }}>
+                  <span className="ic">🛺</span><b>مشوار توكتوك</b><span>توصيل عائلي وداخل البلد</span>
+                </button>
+                <button type="button" className="kh-svc-tile blue" onClick={() => { setServiceKind('ride_motorcycle'); setCustTab('rides') }}>
+                  <span className="ic">🏍️</span><b>مشوار موتوسيكل</b><span>طيران سريع لأي مكان</span>
+                </button>
+                <button type="button" className="kh-svc-tile green" onClick={() => setCustTab('food')}>
+                  <span className="ic">🍔</span><b>مطاعم كفر حكيم</b><span>فول، مشويات، بيتزا، كبدة</span>
+                </button>
+                <button type="button" className="kh-svc-tile purple" onClick={() => { setServiceKind('delivery'); setCustTab('errand') }}>
+                  <span className="ic">📦</span><b>دليفري خاص</b><span>شراء من أي صيدلية أو محل</span>
+                </button>
+              </div>
+              <div className="kh-sec-head">
+                <h3>مطاعم ومحلات كفر حكيم المتاحة</h3>
+                <button type="button" onClick={() => setCustTab('food')}>عرض الكل ←</button>
+              </div>
+              {approvedRestaurants.length === 0 && <p className="muted">لسه مفيش مطاعم متعاقد معاها — الأدمن بيضيف المطاعم من لوحة الإدارة.</p>}
+              {approvedRestaurants.slice(0, 3).map((r) => restaurantRow(r))}
+            </>
+          )}
+          {custTab === 'rides' && (
+            <>
+          <div className="kh-tab-map">
           <div className="map-hero-full">
             <MapView
               height="54vh"
@@ -2631,19 +2825,15 @@ export default function App() {
               onPick={onMapPick}
             />
           </div>
+          </div>
           <div className="card bottom-sheet">
             <div className="sheet-handle" />
-            <h2><span className="icon-chip"><IconUser /></span>اطلب — دليفري كفر حكيم</h2>
-            <div className="row" style={{ flexWrap: 'wrap' }}>
-              {(['ride_tuktuk', 'ride_motorcycle', 'delivery', 'restaurant'] as ServiceKind[]).map((k) => (
-                <button key={k} className={serviceKind === k ? 'btn' : 'btn small'} onClick={() => { setServiceKind(k); setSelectedRestaurantId(null); setCart({}) }}>{SERVICE_LABELS[k]}</button>
-              ))}
+            <h2><span className="icon-chip"><IconUser /></span>حجز مشوار فوري داخل وخارج كفر حكيم</h2>
+            <div className="kh-veh">
+              <button type="button" className={serviceKind === 'ride_tuktuk' ? 'active' : ''} onClick={() => setServiceKind('ride_tuktuk')}>🛺 توكتوك (3 ركاب)</button>
+              <button type="button" className={serviceKind === 'ride_motorcycle' ? 'active' : ''} onClick={() => setServiceKind('ride_motorcycle')}>🏍️ موتوسيكل (فرد)</button>
             </div>
-            <p className="muted">الدفع كاش عند الاستلام 💵 — {serviceKind === 'delivery' ? 'دليفري بالموتوسيكل من أي محل أو صيدلية' : serviceKind === 'restaurant' ? 'اطلب من مطاعم كفر حكيم وكرداسة وأبو رواش' : 'السعر بالاتفاق مع الكابتن'}</p>
-            {serviceKind === 'restaurant' ? (
-              restaurantBrowser
-            ) : (
-            <>
+            <p className="muted">الدفع كاش عند الاستلام 💵 — السعر بالاتفاق مع الكابتن</p>
             <div className="grid">
             <div>
               <label>{serviceKind === 'delivery' ? 'هتجيب منين؟ (اسم المحل / الصيدلية)' : 'نقطة الركوب'}</label>
@@ -2691,12 +2881,6 @@ export default function App() {
             </div>
           </div>
 
-          {serviceKind === 'delivery' && (
-            <div>
-              <label>هاتلي إيه؟</label>
-              <input className="field-input" placeholder="مثال: دوا من صيدلية النور، أو 2 كيلو طماطم من محل الخضار…" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} />
-            </div>
-          )}
           <p className="muted">دوس على الخريطة لتحديد {pickMode === 'pickup' ? 'نقطة الركوب' : pickMode === 'destination' ? 'الوجهة' : '—'} — أو استخدم زرار «موقعي الحالي».</p>
 
           <h3><span className="icon-chip sm"><IconWallet /></span>{serviceKind === 'delivery' ? 'أجرة التوصيل' : 'سعر المشوار'}</h3>
@@ -2718,10 +2902,103 @@ export default function App() {
             <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
           </div>
           <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
-          <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <><IconPin /> {serviceKind === 'delivery' ? 'اطلب دليفري' : serviceKind === 'ride_motorcycle' ? 'اطلب موتوسيكل' : 'اطلب توكتوك'} — {money(fare)}</>}</button>
-            </>
-            )}
+          <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <><IconPin /> {serviceKind === 'ride_motorcycle' ? 'اطلب موتوسيكل' : 'اطلب توكتوك'} — {money(fare)}</>}</button>
           </div>
+            </>
+          )}
+          {custTab === 'food' && restaurantList}
+          {custTab === 'errand' && (
+            <div className="card kh-errand">
+              <h2><span className="icon-chip">📦</span>طلب خاص (دليفري من أي مكان بالقرية)</h2>
+              <p className="muted">عايز حاجة من صيدلية معينة؟ سوبرماركت، مكتبة، أو محل؟ اكتبها هنا وسائق الموتوسيكل هيجيبها لحد عندك!</p>
+              <div>
+                <label>اسم المكان أو المحل:</label>
+                <div className="suggest-wrap">
+                  <input className="field-input" placeholder="مثال: صيدلية الدكتور أحمد، سوبرماركت البركة…" value={pickupLabel} onChange={(e) => { setPickupLabel(e.target.value); if (pickup && pickup.label === 'موقعي الحالي') setPickup(null) }} onBlur={() => setPickupSugg([])} />
+                  {pickupLabel !== '' && (
+                    <button type="button" className="field-clear" aria-label="مسح" onMouseDown={(e) => e.preventDefault()} onClick={() => { setPickupLabel(''); setPickupSugg([]) }}>×</button>
+                  )}
+                  {pickupSugg.length > 0 && (
+                    <div className="suggest-list">
+                      {pickupSugg.map((s) => (
+                        <button key={`${s.lat},${s.lng}`} type="button" className="suggest-item" onMouseDown={(e) => { e.preventDefault(); pickSuggestion('pickup', s) }}>
+                          <IconPin /> {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="row">
+                  <button className="btn small" onClick={() => useMyLocation('pickup')}><IconPin /> موقعي الحالي</button>
+                  <button className={pickMode === 'pickup' ? 'btn small active' : 'btn small'} onClick={() => setPickMode('pickup')}>حدّد على الخريطة</button>
+                </div>
+              </div>
+              <div>
+                <label>التوصيل فين؟</label>
+                <div className="suggest-wrap">
+                  <input className="field-input" placeholder={destination && destination.label === 'موقعي الحالي' ? 'موقعي الحالي' : 'رايح فين؟'} value={destLabel} onChange={(e) => { setDestLabel(e.target.value); if (destination && destination.label === 'موقعي الحالي') setDestination(null) }} onBlur={() => setDestSugg([])} />
+                  {destLabel !== '' && (
+                    <button type="button" className="field-clear" aria-label="مسح" onMouseDown={(e) => e.preventDefault()} onClick={() => { setDestLabel(''); setDestSugg([]) }}>×</button>
+                  )}
+                  {destSugg.length > 0 && (
+                    <div className="suggest-list">
+                      {destSugg.map((s) => (
+                        <button key={`${s.lat},${s.lng}`} type="button" className="suggest-item" onMouseDown={(e) => { e.preventDefault(); pickSuggestion('destination', s) }}>
+                          <IconPin /> {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="row">
+                  <button className="btn small" onClick={() => useMyLocation('destination')}><IconPin /> موقعي الحالي</button>
+                  <button className={pickMode === 'destination' ? 'btn small active' : 'btn small'} onClick={() => setPickMode('destination')}>حدّد على الخريطة</button>
+                </div>
+              </div>
+              <div>
+                <label>الأغراض المطلوبة بالتفصيل:</label>
+                <textarea rows={3} placeholder="اكتب طلباتك هنا بدقة…" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} />
+              </div>
+              <MapView
+                height={200}
+                pickup={pickup}
+                destination={destination}
+                driver={null}
+                drivers={onlineDrivers}
+                pickMode={pickMode}
+                onPick={onMapPick}
+              />
+              <p className="muted">دوس على الخريطة لتحديد {pickMode === 'pickup' ? 'مكان المحل' : 'عنوان التوصيل'} — أو استخدم زرار «موقعي الحالي».</p>
+              <h3><span className="icon-chip sm"><IconWallet /></span>أجرة التوصيل</h3>
+              <div className="fare-stepper">
+                <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.max(FARE_MIN, fare - 5))) }}>−</button>
+                <input
+                  className="fare-number"
+                  inputMode="numeric"
+                  value={fareText}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9]/g, '')
+                    fareTouchedRef.current = true
+                    setFareText(v)
+                  }}
+                  onBlur={() => setFareText(String(fare))}
+                  aria-label="أجرة التوصيل"
+                />
+                <span className="fare-unit">جنيه</span>
+                <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
+              </div>
+              <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
+              <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <>📦 اطلب دليفري — {money(fare)}</>}</button>
+            </div>
+          )}
+          {custTab === 'orders' && passengerTripsView}
+          <nav className="kh-bottomnav">
+            <button type="button" className={custTab === 'home' ? 'active' : ''} onClick={() => setCustTab('home')}><span className="kh-nav-ic">🏠</span><span>الرئيسية</span></button>
+            <button type="button" className={custTab === 'rides' ? 'active' : ''} onClick={() => { if (serviceKind === 'delivery' || serviceKind === 'restaurant') setServiceKind('ride_tuktuk'); setCustTab('rides') }}><span className="kh-nav-ic">🏍️</span><span>مشوار</span></button>
+            <button type="button" className={custTab === 'food' ? 'active' : ''} onClick={() => setCustTab('food')}><span className="kh-nav-ic">🍔</span><span>مطاعم</span></button>
+            <button type="button" className={custTab === 'errand' ? 'active' : ''} onClick={() => { setServiceKind('delivery'); setCustTab('errand') }}><span className="kh-nav-ic">📦</span><span>طلب خاص</span></button>
+            <button type="button" className={custTab === 'orders' ? 'active' : ''} onClick={() => setCustTab('orders')}><span className="kh-nav-ic">🕐</span><span>طلباتي</span></button>
+          </nav>
         </>
       )}
     </>
@@ -2753,37 +3030,6 @@ export default function App() {
           <button className="btn danger" onClick={clearPassengerVerification}>تسجيل خروج</button>
         </>
       )}
-    </div>
-  )
-
-  // طلبات العميل: كل طلباته بحالتها وأوقاتها
-  const passengerTripsView = (
-    <div className="card">
-      <h2><span className="icon-chip"><IconList /></span>طلباتي</h2>
-      {myPassengerRides.length === 0 && <p>لسه معملتش أي طلبات.</p>}
-      <h3>🍽️ طلبات المطاعم</h3>
-      {state.restaurantOrders.filter((o) => state.passenger && o.customerPhone === state.passenger.phone).length === 0 && <p className="muted">لسه معملتش أي طلبات أكل.</p>}
-      {state.restaurantOrders.filter((o) => state.passenger && o.customerPhone === state.passenger.phone).sort((a, b) => b.createdAt - a.createdAt).map((o) => (
-        <div key={o.id} className="ride">
-          <b>{o.id}</b> — {o.restaurantName} — {RESTAURANT_ORDER_LABELS[o.status]} — <b>{money(o.foodTotal + o.deliveryFee)}</b> (كاش 💵)
-          <br />{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')} — التوصيل: {o.address}
-          {o.driverName ? <><br />الكابتن: {o.driverName} — <a className="phone-chip" href={`tel:${o.driverPhone}`}><IconPhone /> {o.driverPhone}</a></> : null}
-        </div>
-      ))}
-      {myPassengerRides.map((r) => (
-        <div key={r.orderNo} className="ride">
-          <b>{r.orderNo}</b> — {r.status === 'matched' || r.status === 'driver_arrived' || r.status === 'on_trip' ? (<>{avatar(r.driverPhotoUrl, r.driverName || 'الكابتن')} الكابتن {r.driverName}</>) : rideStatusLabel(r.status)} — <b>{money(r.fare)}</b>
-          <br />من: {r.pickup.label} — إلى: {r.destination.label}
-          {rideTimes(r)}
-          {r.status === 'cancelled' && r.cancelReason && <p className="muted">سبب الإلغاء: {r.cancelReason}</p>}
-          {r.status === 'completed' && r.passengerRatingForDriver === null && (
-            <div>
-              <p>قيّم الكابتن بعد الرحلة (تقييمك يظهر للعميل اللي بعده):</p>
-              {stars(rateDriver, (n) => { setRateDriver(n); submitRating(r.orderNo, 'passenger', n) })}
-            </div>
-          )}
-        </div>
-      ))}
     </div>
   )
 
@@ -3067,20 +3313,36 @@ export default function App() {
   }
 
   const adminView = (
-    <div className="card">
-      <h2><span className="icon-chip"><IconShield /></span>الإدارة — صلاح</h2>
+    <div className="card kh-dark">
+      <div className="kh-drv-head">
+        <div>
+          <span className="lbl">👑 لوحة تحكم إدارة كفر حكيم</span>
+          <b>التحكم الكامل في المطاعم والأسعار والشبكة</b>
+        </div>
+        <span className="kh-pill">مشرف المنظومة</span>
+      </div>
+      <div className="kh-admin-tabs">
+        <button type="button" className={adminTab === 'stats' ? 'active' : ''} onClick={() => setAdminTab('stats')}>البيانات والحركة</button>
+        <button type="button" className={adminTab === 'add-store' ? 'active' : ''} onClick={() => setAdminTab('add-store')}>إضافة محل جديد</button>
+        <button type="button" className={adminTab === 'pricing' ? 'active' : ''} onClick={() => setAdminTab('pricing')}>أسعار التسعير والعمولات</button>
+        <button type="button" className={adminTab === 'stores' ? 'active' : ''} onClick={() => setAdminTab('stores')}>إدارة المحلات</button>
+        <button type="button" className={adminTab === 'more' ? 'active' : ''} onClick={() => setAdminTab('more')}>المزيد</button>
+      </div>
+      {adminTab === 'stats' && (<>
       <h3><span className="icon-chip sm">📊</span>إحصائيات اليوم</h3>
-      <div className="grid">
-        <div className="box"><b>{adminStats.ridesToday}</b><br /><span className="muted">مشوار مكتمل اليوم</span></div>
-        <div className="box"><b>{adminStats.foodOrdersToday}</b><br /><span className="muted">طلب مطعم اليوم</span></div>
-        <div className="box"><b>{adminStats.approvedRestaurants}</b><br /><span className="muted">مطعم معتمد</span></div>
-        <div className="box"><b>{money(adminStats.commissionsDue)}</b><br /><span className="muted">عمولات مستحقة</span></div>
+      <div className="kh-stat-grid">
+        <div className="kh-stat"><div className="lbl">مشوار مكتمل اليوم</div><div className="val amber">{adminStats.ridesToday}</div></div>
+        <div className="kh-stat"><div className="lbl">طلب مطعم اليوم</div><div className="val green">{adminStats.foodOrdersToday}</div></div>
+        <div className="kh-stat"><div className="lbl">مطعم معتمد</div><div className="val blue">{adminStats.approvedRestaurants}</div></div>
+        <div className="kh-stat"><div className="lbl">عمولات مستحقة</div><div className="val purple">{money(adminStats.commissionsDue)}</div></div>
       </div>
       <h3><span className="icon-chip sm">🕐</span>سجل النشاط</h3>
       {adminActivity.length === 0 && <p className="muted">لسه مفيش نشاط.</p>}
       {adminActivity.map((e, i) => (
         <div key={`${e.at}-${i}`} className="ride">• {e.text}<br /><span className="muted">{fmtTime(e.at)}</span></div>
       ))}
+      </>)}
+      {adminTab === 'pricing' && (<>
       <h3><span className="icon-chip sm"><IconWallet /></span>رقم محفظتي</h3>
       <div className="grid">
         <input placeholder="رقم المحفظة" value={state.admin.walletNumber} onChange={(e) => update({ admin: { ...state.admin, walletNumber: e.target.value } })} onBlur={saveAdminWallet} />
@@ -3132,8 +3394,10 @@ export default function App() {
           ))}
         </div>
       )}
-      <h3><span className="icon-chip sm">🍽️</span>المطاعم المتعاقد معاها</h3>
-      <p className="muted">عمولة المطاعم الافتراضية {Math.round(state.admin.restaurantCommissionRate * 100)}% من سعر الأكل — بتتغير لكل مطعم.</p>
+      </>)}
+      {adminTab === 'add-store' && (<>
+      <h3><span className="icon-chip sm">🍽️</span>إضافة مطعم أو محل جديد في كفر حكيم</h3>
+      <p className="muted">بمجرد الحفظ سيظهر المحل فوراً لجميع العملاء في قائمة المطاعم! عمولة المطاعم الافتراضية {Math.round(state.admin.restaurantCommissionRate * 100)}% من سعر الأكل — بتتغير لكل مطعم.</p>
       <div className="grid">
         <input placeholder="اسم المطعم" value={newRestaurantName} onChange={(e) => setNewRestaurantName(e.target.value)} />
         <input placeholder="رقم تليفون صاحب المطعم" value={newRestaurantPhone} onChange={(e) => setNewRestaurantPhone(e.target.value)} />
@@ -3152,6 +3416,9 @@ export default function App() {
         <input placeholder="السعر (جنيه)" inputMode="numeric" value={newItem2Price} onChange={(e) => setNewItem2Price(e.target.value.replace(/[^0-9]/g, ''))} />
       </div>
       <button className="btn" onClick={() => void addRestaurant()}>أضف مطعم ✅</button>
+      </>)}
+      {adminTab === 'stores' && (<>
+      <h3><span className="icon-chip sm">🍽️</span>المحلات المسجلة بالنظام حالياً</h3>
       {state.restaurants.length === 0 && <p>لسه مفيش مطاعم.</p>}
       {state.restaurants.map((r) => (
         <div key={r.id} className="ride">
@@ -3185,6 +3452,8 @@ export default function App() {
           <br />الكابتن: {o.driverName || '—'} — {o.address}
         </div>
       ))}
+      </>)}
+      {adminTab === 'more' && (<>
       <h3><span className="icon-chip sm"><IconWallet /></span>طلبات التحويل الواردة</h3>
       {state.payments.length === 0 && <p>مفيش طلبات تحويل دلوقتي.</p>}
       {state.payments.map((p) => (
@@ -3308,6 +3577,7 @@ export default function App() {
         </div>
       ))}
       <button className="btn danger" onClick={() => { if (confirm('متأكد؟ هيمسح كل البيانات المحلية التجريبية.')) update(defaultState()) }}><IconTrash /> مسح البيانات التجريبية</button>
+      </>)}
     </div>
   )
 
@@ -3585,13 +3855,15 @@ export default function App() {
 
   return (
     <div className="app" dir="rtl">
-      <header className="header">
-        <img src={logoUrl} alt="دليفري كفر حكيم" className="logo" />
-        <h1><span className="brand">دليفري كفر حكيم</span></h1>
-      </header>
-      {appRole === 'passenger' && (
+      {['support', 'profile', 'myRequests'].includes(role) && (
+        <header className="header">
+          <img src={logoUrl} alt="دليفري كفر حكيم" className="logo" />
+          <h1><span className="brand">دليفري كفر حكيم</span></h1>
+        </header>
+      )}
+      {appRole === 'passenger' && role !== 'passenger' && (
         <nav className="tabs">
-          <button className={role === 'passenger' ? 'tab active' : 'tab'} onClick={() => setRole('passenger')}><IconPin />اطلب</button>
+          <button className="tab" onClick={() => setRole('passenger')}><IconPin />اطلب</button>
           <button className={role === 'myRequests' ? 'tab active' : 'tab'} onClick={() => setRole('myRequests')}><IconList />طلباتي</button>
           {myRestaurants.length > 0 && <button className={role === 'restaurant' ? 'tab active' : 'tab'} onClick={() => setRole('restaurant')}>🍽️ مطعمي</button>}
           <button className={role === 'support' ? 'tab active' : 'tab'} onClick={() => setRole('support')}><IconChat />الدعم{hasSupportReply ? ' 🔴' : ''}</button>
@@ -3608,6 +3880,8 @@ export default function App() {
         </nav>
       )}
       {noticeModal}
+      {menuModal}
+      {cartDrawer}
       {incomingCallModal}
       {inCallModal}
       {lightboxModal}
