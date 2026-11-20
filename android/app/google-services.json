@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "310023716488",
+    "project_id": "delivery-kafr-hakim",
+    "storage_bucket": "delivery-kafr-hakim.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:310023716488:android:827e7a3046acc1fd99693d",
+        "android_client_info": {
+          "package_name": "com.delivery.kafrhakim"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAmzZO2eradmWTm3l9ARbsXb_6-sB1Nzwo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

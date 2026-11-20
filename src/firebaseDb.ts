@@ -1,0 +1,874 @@
+// ---------------------------------------------------------------------------
+//  طبقة Firebase — Firestore فقط (بدون Storage)
+//  تعمل فقط عندما يلصق صلاح الـ config الحقيقي في src/firebaseConfig.ts.
+//  في الوضع التجريبي المحلي، كل الدوال ترجع null/تتجاهل بصمت، والتطبيق
+//  يكمل على التخزين المحلي (localStorage) في src/store.ts.
+//
+//  ⚠️ لا يوجد أي استخدام لـ Firebase Storage هنا: التخزين في المشاريع
+//  الجديدة يتطلب خطة Blaze (بطاقة فوترة)، وصلاح اختار عدم إضافتها
+//  دلوقتي (قرار 2026-11-12). الصور (بطاقة السواق + سكرين شوت التحويل)
+//  تتخزن كـ Data URL مضغوطة داخل مستند Firestore نفسه — انظر
+//  src/imageUpload.ts. عند الترقية لـ Blaze لاحقاً ممكن ترحيلها
+//  لـ Storage وتبديل الحقول بروابط.
+//
+//  ملحوظة مهمة (إصلاح 2026-11-12): الاستيراد هنا ثابت (static) عمداً —
+//  الاستيراد الديناميكي import('firebase/firestore') كان بيطلع ملف منفصل
+//  (chunk) لازم يتحمّل وقت التشغيل، وفي WebView بتاع Capacitor كان
+//  بيفشل بصمت فكل عمليات Firestore (حفظ/قراءة/مزامنة) مكانتش بتوصل
+//  للسيرفر أصلاً رغم إن القواعد مفتوحة. الاستيراد الثابت بيضم الكود
+//  في الحزمة الرئيسية فمفيش تحميل وقت التشغيل.
+//
+//  مجموعات Firestore المقترحة:
+//    passengers/{phone}   — name, phone, code, phoneVerified, ratingAvg...
+//    drivers/{code}       — profile + idCardUrl (Base64 مضغوطة) + wallet debt + online
+//                           (v48: code = 'D-' + أرقام الهاتف E.164 — الكود نفسه من الرقم،
+//                           فمستحيل سواقين يتشاركوا مستند، ومستحيل تصادم هاش)
+//    rides/{orderNo}      — ride + offers[] + driver location
+//                           (v48: orderNo من عدّاد السيرفر settings/counters.rideSeq —
+//                           كل راكب أول رحلة ليه كانت #1001 قبل كده، فالرحلات كانت بتتصادم)
+//    settings/counters    — rideSeq: عدّاد أرقام الرحلات (معاملة ذرّية)
+//    settings/admin       — admin walletNumber + walletName (v48: بتتحفظ على السيرفر —
+//                           قبل كده كانت محلية بس، فالسواقين مبيعرفوش رقم التحويل)
+//    settings/launch      — (v44) launched + driversTarget: مفتاح تشغيل الخدمة للركاب
+//    launchWaitlist/{id}  — (v44) phone + name + createdAt: عملاء مستنيين الإطلاق
+//    waitlist/{id}        — عملاء برّه النطاق سابوا أرقامهم للتوسع
+//    supportChats/{phone} — (v50) شات دعم لكل رقم: messages[] + lastCustomerAt
+//                           + lastReplyAt + needsAdmin — المساعد (زعتر) بيرد
+//                           عليها من Firestore، والأدمن بيرد من لوحة الإدارة
+//    restaurants/{id}      — (v1 دليفري كفر حكيم) مطعم متعاقد معاه + approved + commissionRate
+//    menuItems/{id}        — صنف منيو: restaurantId + name + price + available
+//    restaurantOrders/{id} — طلب أكل: items[] + foodTotal + deliveryFee + commission + status
+// ---------------------------------------------------------------------------
+import { arrayUnion, collection, deleteDoc, doc, getDoc, getFirestore, increment, onSnapshot, query, runTransaction, setDoc } from 'firebase/firestore'
+import type { Firestore, QueryConstraint } from 'firebase/firestore'
+import { isFirebaseConfigured } from './firebaseConfig'
+import { getFirebaseApp } from './firebaseApp'
+import { preparePhotoForFirestore } from './imageUpload'
+import type { DriverProfile, LaunchWaitlistEntry, MenuItem, PassengerProfile, PaymentRequest, Restaurant, RestaurantOrder, Ride, RideCall, SupportChat, SupportMessage, VehicleType, WaitlistEntry } from './types'
+import { RESTAURANT_COMMISSION_RATE } from './types'
+
+export const firebaseEnabled = isFirebaseConfigured
+
+/** يتنادى عند فشل أي عملية Firestore — بيتسجّل في الكونسول بس، من غير
+ *  أي رسالة للمستخدم: أخطاء الشبكة العابرة بترجع لوحدها والمزامنة
+ *  بتكمل تلقائياً، والرسالة كانت بتزعج المستخدم على الفاضي. */
+let errorHandler: ((message: string) => void) | null = null
+export function setFirestoreErrorHandler(fn: ((message: string) => void) | null) {
+  errorHandler = fn
+}
+function reportError(where: string, e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e)
+  console.warn(`Firestore ${where} failed:`, e)
+  errorHandler?.(`${where}: ${msg}`)
+}
+
+let db: Firestore | null | undefined
+function getDb(): Firestore | null {
+  if (!isFirebaseConfigured) return null
+  if (db === undefined) {
+    const app = getFirebaseApp()
+    db = app ? getFirestore(app) : null
+  }
+  return db
+}
+
+/** يقرأ مستنداً واحداً من Firestore — null لو مش موجود أو مفيش إعداد. */
+export async function loadDoc(
+  collectionName: string,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const db = getDb()
+    if (!db) return null
+    const snap = await getDoc(doc(db, collectionName, id))
+    return snap.exists() ? (snap.data() as Record<string, unknown>) : null
+  } catch (e) {
+    reportError('قراءة', e)
+    return null
+  }
+}
+
+/** يحفظ مستنداً في Firestore عند توفر الإعداد — وإلا يتجاهل. */
+export async function saveDoc(
+  collectionName: string,
+  id: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const db = getDb()
+    if (!db) return
+    await setDoc(doc(db, collectionName, id), data, { merge: true })
+  } catch (e) {
+    reportError('حفظ', e)
+  }
+}
+
+/** يمسح مستنداً من Firestore — للترحيل (v48: نقل مستند سواق من كود قديم لكود جديد). */
+export async function deleteDocById(collectionName: string, id: string): Promise<void> {
+  try {
+    const db = getDb()
+    if (!db) return
+    await deleteDoc(doc(db, collectionName, id))
+  } catch (e) {
+    reportError('حذف', e)
+  }
+}
+
+/**
+ * رقم طلب فريد من السيرفر (v48): عدّاد ذرّي في settings/counters.rideSeq —
+ * كل رحلة بتاخد رقم جديد من غير تصادم بين الركاب.
+ * (البداية #10001 مش #1001: أرقام #1001-#1009 موجودة أصلاً كمستندات
+ * رحلات تجريبية من زمن العدّاد المحلي — لو بدأنا من #1001 أول رحلة
+ * حقيقية كانت هتكتب فوق رحلة تجريبية قديمة بنفس الرقم.)
+ * لو مفيش نت (أوفلاين) يرجع رقم مؤقت فريد `#T<وقت>` — مش هيتصادم مع حد.
+ */
+export async function nextOrderNumber(): Promise<string> {
+  try {
+    const db = getDb()
+    if (!db) return `#T${Date.now()}`
+    const n = await runTransaction(db, async (tx) => {
+      const ref = doc(db, 'settings', 'counters')
+      const snap = await tx.get(ref)
+      const cur = Number(snap.data()?.rideSeq ?? 0)
+      tx.set(ref, { rideSeq: increment(1) }, { merge: true })
+      return cur + 1
+    })
+    return `#${10000 + n}`
+  } catch (e) {
+    reportError('رقم الطلب', e)
+    return `#T${Date.now()}`
+  }
+}
+
+/** يقرأ رقم محفظة الأدمن من السيرفر (settings/admin) — null لو لسه متحددش. */
+export async function loadAdminSettings(): Promise<{ walletNumber: string; walletName: string } | null> {
+  const docData = await loadDoc('settings', 'admin')
+  if (!docData) return null
+  return {
+    walletNumber: typeof docData.walletNumber === 'string' ? docData.walletNumber : '',
+    walletName: typeof docData.walletName === 'string' ? docData.walletName : '',
+  }
+}
+
+/** يحفظ رقم محفظة الأدمن على السيرفر — عشان السواقين يشوفوه على أي جهاز. */
+export async function saveAdminSettings(s: { walletNumber: string; walletName: string }): Promise<void> {
+  await saveDoc('settings', 'admin', { walletNumber: s.walletNumber, walletName: s.walletName })
+}
+
+/**
+ * يجهّز صورة (بطاقة أو سكرين شوت تحويل) للتخزين في Firestore:
+ * تصغير لأقصى ضلع 800px + ضغط JPEG، ويرجع Data URL مضغوطة
+ * (تحت ~250KB) تتحفظ في حقل المستند مباشرة — بدون Storage إطلاقاً.
+ * يرمي Error برسالة عربية لو الصورة مش صورة أو فضلت كبيرة بعد الضغط.
+ */
+export async function uploadImageAsDataUrl(file: File): Promise<string> {
+  return preparePhotoForFirestore(file)
+}
+
+/** يحوّل مستند رحلة من Firestore لكائن Ride كامل (مع قيم افتراضية للحقول الجديدة). */
+function normalizeRide(id: string, data: Record<string, unknown>): Ride {
+  const d = data as unknown as Partial<Ride>
+  return {
+    orderNo: d.orderNo ?? id,
+    passengerCode: d.passengerCode ?? '',
+    passengerName: d.passengerName ?? 'عميل',
+    passengerPhone: d.passengerPhone ?? '',
+    passengerRating: d.passengerRating ?? 0,
+    pickup: d.pickup ?? { lat: 0, lng: 0, label: '' },
+    destination: d.destination ?? { lat: 0, lng: 0, label: '' },
+    fare: d.fare ?? 0,
+    serviceKind: d.serviceKind ?? 'ride_tuktuk',
+    vehicleType: (d.vehicleType ?? 'tuk-tuk') as VehicleType,
+    deliveryNote: d.deliveryNote ?? null,
+    restaurantId: d.restaurantId ?? null,
+    restaurantName: d.restaurantName ?? null,
+    status: d.status ?? 'searching',
+    driverCode: d.driverCode ?? null,
+    driverName: d.driverName ?? null,
+    driverPhone: d.driverPhone ?? null,
+    driverLat: d.driverLat ?? null,
+    driverLng: d.driverLng ?? null,
+    driverLocAt: d.driverLocAt ?? null,
+    offers: d.offers ?? [],
+    createdAt: d.createdAt ?? Date.now(),
+    acceptedAt: d.acceptedAt ?? null,
+    arrivedAt: d.arrivedAt ?? null,
+    completedAt: d.completedAt ?? null,
+    cancelledAt: d.cancelledAt ?? null,
+    cancelReason: d.cancelReason ?? null,
+    cancelledBy: d.cancelledBy ?? null,
+    passengerPhotoUrl: d.passengerPhotoUrl ?? null,
+    driverPhotoUrl: d.driverPhotoUrl ?? null,
+    passengerRatingForDriver: d.passengerRatingForDriver ?? null,
+    driverRatingForPassenger: d.driverRatingForPassenger ?? null,
+  }
+}
+
+/**
+ * اشتراك حي في مجموعة الرحلات: أي طلب جديد أو تغيير حالة من جهاز تاني
+ * يوصل فوراً للجهاز ده — وده اللي بيخلي طلب العميل يظهر ويرن عند السواق.
+ * يرجع دالة إلغاء الاشتراك. في الوضع التجريبي المحلي يرجع دالة فاضية.
+ */
+export function subscribeRides(cb: (rides: Ride[]) => void, constraints?: QueryConstraint[]): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const q = constraints && constraints.length > 0
+      ? query(collection(db, 'rides'), ...constraints)
+      : collection(db, 'rides')
+    const unsub = onSnapshot(
+      q,
+      (snap) => cb(snap.docs.map((d) => normalizeRide(d.id, d.data() as Record<string, unknown>))),
+      (err) => reportError('مزامنة الرحلات', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة الرحلات', e)
+    return () => {}
+  }
+}
+
+function normalizePayment(id: string, data: Record<string, unknown>): PaymentRequest {
+  const d = data as unknown as Partial<PaymentRequest>
+  return {
+    id: d.id ?? id,
+    driverCode: d.driverCode ?? '',
+    driverName: d.driverName ?? 'الكابتن',
+    amount: d.amount ?? 0,
+    screenshotUrl: d.screenshotUrl ?? '',
+    status: d.status ?? 'pending',
+    createdAt: d.createdAt ?? Date.now(),
+  }
+}
+
+/**
+ * اشتراك حي في طلبات التحويل: طلب سداد من سواق على جهاز تاني
+ * يوصل فوراً لشاشة الإدارة — من غيره الأدمن مبيشوفش غير طلبات جهازه.
+ */
+export function subscribePayments(cb: (payments: PaymentRequest[]) => void, constraints?: QueryConstraint[]): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const q = constraints && constraints.length > 0
+      ? query(collection(db, 'payments'), ...constraints)
+      : collection(db, 'payments')
+    const unsub = onSnapshot(
+      q,
+      (snap) => cb(snap.docs.map((d) => normalizePayment(d.id, d.data() as Record<string, unknown>))),
+      (err) => reportError('مزامنة التحويلات', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة التحويلات', e)
+    return () => {}
+  }
+}
+
+/** يحوّل مستند سواق من Firestore لملف سواق كامل (تاريخ التسجيل 0 لو مش موجود). */
+function normalizeDriver(id: string, data: Record<string, unknown>): DriverProfile {
+  const d = data as unknown as Partial<DriverProfile>
+  return {
+    name: d.name ?? 'كابتن',
+    phone: d.phone ?? '',
+    code: d.code ?? id,
+    plate: d.plate ?? '',
+    color: d.color ?? '',
+    model: d.model ?? '',
+    vehicleType: (d.vehicleType ?? 'tuk-tuk') as VehicleType,
+    online: d.online ?? false,
+    sharingLocation: d.sharingLocation ?? false,
+    ratingAvg: d.ratingAvg ?? 0,
+    ratingCount: d.ratingCount ?? 0,
+    createdAt: d.createdAt ?? 0,
+    debt: d.debt ?? 0,
+    totalPaid: d.totalPaid ?? 0,
+    balance: d.balance ?? 0,
+    idCardUrl: d.idCardUrl ?? null,
+    photoUrl: d.photoUrl ?? null,
+    idCardStatus: d.idCardStatus ?? 'none',
+    currentLat: d.currentLat ?? null,
+    currentLng: d.currentLng ?? null,
+  }
+}
+
+/** يحوّل مستند عميل من Firestore لملف عميل كامل (تاريخ التسجيل 0 لو مش موجود). */
+function normalizePassenger(id: string, data: Record<string, unknown>): PassengerProfile {
+  const d = data as unknown as Partial<PassengerProfile>
+  return {
+    name: d.name ?? 'عميل',
+    phone: d.phone ?? id,
+    code: d.code ?? '',
+    phoneVerified: d.phoneVerified ?? false,
+    photoUrl: d.photoUrl ?? null,
+    ratingAvg: d.ratingAvg ?? 0,
+    ratingCount: d.ratingCount ?? 0,
+    createdAt: d.createdAt ?? 0,
+  }
+}
+
+/**
+ * اشتراك حي في السواقين المسجلين — للإدارة بس: أي سواق جديد يسجل
+ * يظهر فوراً في قسم المستخدمين عند الأدمن.
+ */
+export function subscribeDrivers(cb: (drivers: DriverProfile[]) => void, constraints?: QueryConstraint[]): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const q = constraints && constraints.length > 0
+      ? query(collection(db, 'drivers'), ...constraints)
+      : collection(db, 'drivers')
+    const unsub = onSnapshot(
+      q,
+      (snap) => cb(snap.docs.map((d) => normalizeDriver(d.id, d.data() as Record<string, unknown>))),
+      (err) => reportError('مزامنة السواقين', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة السواقين', e)
+    return () => {}
+  }
+}
+
+/**
+ * اشتراك حي في العملاء المسجلين — للإدارة بس: أي عميل جديد يسجل
+ * يظهر فوراً في قسم المستخدمين عند الأدمن.
+ */
+export function subscribePassengers(cb: (passengers: PassengerProfile[]) => void): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const unsub = onSnapshot(
+      collection(db, 'passengers'),
+      (snap) => cb(snap.docs.map((d) => normalizePassenger(d.id, d.data() as Record<string, unknown>))),
+      (err) => reportError('مزامنة العملاء', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة العملاء', e)
+    return () => {}
+  }
+}
+
+/**
+ * يقرأ إعدادات الإطلاق (settings/launch) — مستند مش موجود = لسه ما
+ * اشتغلناش (launched=false) وهدف السواقين 100. القواعد مفتوحة
+ * (allow read, write: if true) فأي عميل موثّق يقدر يقراه.
+ */
+export async function loadLaunch(): Promise<{ launched: boolean; driversTarget: number }> {
+  const docData = await loadDoc('settings', 'launch')
+  return {
+    launched: docData?.launched === true,
+    driversTarget: typeof docData?.driversTarget === 'number' ? docData.driversTarget : 100,
+  }
+}
+
+/**
+ * اشتراك حي في قايمة انتظار الإطلاق — للإدارة بس: أي عميل ساب رقمه
+ * عشان نبلغه لما الخدمة تشتغل يظهر فوراً عند الأدمن.
+ */
+export function subscribeLaunchWaitlist(cb: (entries: LaunchWaitlistEntry[]) => void): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const unsub = onSnapshot(
+      collection(db, 'launchWaitlist'),
+      (snap) => cb(snap.docs.map((d) => {
+        const data = d.data() as Record<string, unknown>
+        return {
+          id: d.id,
+          phone: String(data.phone ?? ''),
+          name: String(data.name ?? ''),
+          createdAt: (data.createdAt as number) ?? 0,
+        } as LaunchWaitlistEntry
+      })),
+      (err) => reportError('مزامنة قايمة انتظار الإطلاق', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة قايمة انتظار الإطلاق', e)
+    return () => {}
+  }
+}
+
+/**
+ * اشتراك حي في قايمة انتظار التوسع — للإدارة بس: أي عميل من برّه النطاق
+ * ساب رقمه يظهر فوراً عند الأدمن.
+ */
+export function subscribeWaitlist(cb: (entries: WaitlistEntry[]) => void): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const unsub = onSnapshot(
+      collection(db, 'waitlist'),
+      (snap) => cb(snap.docs.map((d) => {
+        const data = d.data() as Record<string, unknown>
+        return {
+          id: d.id,
+          phone: String(data.phone ?? ''),
+          name: String(data.name ?? ''),
+          code: String(data.code ?? ''),
+          pickupLabel: String(data.pickupLabel ?? ''),
+          destLabel: String(data.destLabel ?? ''),
+          createdAt: (data.createdAt as number) ?? 0,
+        } as WaitlistEntry
+      })),
+      (err) => reportError('مزامنة قايمة الانتظار', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة قايمة الانتظار', e)
+    return () => {}
+  }
+}
+
+/**
+ * اعتماد طلب تحويل في معاملة ذرّية (v48): الطلب لازم يكون لسه pending
+ * جوّه المعاملة نفسها — فاعتماد مرتين (جهازين أو ضغطتين) مستحيل،
+ * وخصم المديونية بيتحسب من أحدث قراءة على السيرفر، مش من حالة قديمة.
+ */
+export async function approvePaymentTx(
+  paymentId: string,
+): Promise<{ ok: boolean; alreadyReviewed?: boolean; debt?: number; balance?: number; totalPaid?: number; remainder?: number }> {
+  try {
+    const db = getDb()
+    if (!db) return { ok: false }
+    const result = await runTransaction(db, async (tx) => {
+      const payRef = doc(db, 'payments', paymentId)
+      const paySnap = await tx.get(payRef)
+      if (!paySnap.exists()) throw new Error('payment-missing')
+      const pay = paySnap.data() as Partial<PaymentRequest>
+      if (pay.status !== 'pending') throw new Error('already-reviewed')
+      const driverCode = String(pay.driverCode ?? '')
+      const amount = Number(pay.amount ?? 0)
+      const dRef = doc(db, 'drivers', driverCode)
+      const dSnap = await tx.get(dRef)
+      const curDebt = Number(dSnap.data()?.debt ?? 0)
+      const curPaid = Number(dSnap.data()?.totalPaid ?? 0)
+      const curBalance = Number(dSnap.data()?.balance ?? 0)
+      const toDebt = Math.min(amount, curDebt)
+      const remainder = Math.round((amount - toDebt) * 100) / 100
+      const debt = Math.round((curDebt - toDebt) * 100) / 100
+      const balance = Math.round((curBalance + remainder) * 100) / 100
+      const totalPaid = Math.round((curPaid + amount) * 100) / 100
+      tx.update(payRef, { status: 'approved' })
+      tx.set(dRef, { debt, balance, totalPaid }, { merge: true })
+      return { debt, balance, totalPaid, remainder }
+    })
+    return { ok: true, ...result }
+  } catch (e) {
+    if (e instanceof Error && e.message === 'already-reviewed') return { ok: false, alreadyReviewed: true }
+    reportError('اعتماد التحويل', e)
+    return { ok: false }
+  }
+}
+
+/**
+ * تسجيل تقييم في معاملة ذرّية (v48): التقييم لنفس الرحلة مرة واحدة بس
+ * (الحارس جوّه المعاملة)، والمتوسط والعداد بيتحسبوا من أحدث قراءة —
+ * تقييمان متزامنان لنفس السواق مبيضيّعوش بعض.
+ */
+export async function applyRatingTx(
+  orderNo: string,
+  by: 'passenger' | 'driver',
+  value: number,
+): Promise<{ ok: boolean; reason?: string; ratingAvg?: number; ratingCount?: number }> {
+  try {
+    const db = getDb()
+    if (!db) return { ok: false, reason: 'no-firebase' }
+    const result = await runTransaction(db, async (tx) => {
+      const rideRef = doc(db, 'rides', orderNo)
+      const rideSnap = await tx.get(rideRef)
+      if (!rideSnap.exists()) throw new Error('ride-missing')
+      const ride = rideSnap.data() as Partial<Ride>
+      if (by === 'passenger') {
+        if (ride.passengerRatingForDriver != null) throw new Error('already-rated')
+        const driverCode = ride.driverCode as string | null
+        if (!driverCode) throw new Error('no-driver')
+        tx.update(rideRef, { passengerRatingForDriver: value })
+        const dRef = doc(db, 'drivers', driverCode)
+        const dSnap = await tx.get(dRef)
+        const avg = Number(dSnap.data()?.ratingAvg ?? 0)
+        const count = Number(dSnap.data()?.ratingCount ?? 0)
+        const n = count + 1
+        const ratingAvg = Math.round(((avg * count + value) / n) * 10) / 10
+        tx.set(dRef, { ratingAvg, ratingCount: n }, { merge: true })
+        return { ratingAvg, ratingCount: n }
+      } else {
+        if (ride.driverRatingForPassenger != null) throw new Error('already-rated')
+        const passengerPhone = ride.passengerPhone as string | null
+        if (!passengerPhone) throw new Error('no-passenger')
+        tx.update(rideRef, { driverRatingForPassenger: value })
+        const pRef = doc(db, 'passengers', passengerPhone)
+        const pSnap = await tx.get(pRef)
+        const avg = Number(pSnap.data()?.ratingAvg ?? 0)
+        const count = Number(pSnap.data()?.ratingCount ?? 0)
+        const n = count + 1
+        const ratingAvg = Math.round(((avg * count + value) / n) * 10) / 10
+        tx.set(pRef, { ratingAvg, ratingCount: n }, { merge: true })
+        return { ratingAvg, ratingCount: n }
+      }
+    })
+    return { ok: true, ...result }
+  } catch (e) {
+    if (e instanceof Error && e.message === 'already-rated') return { ok: false, reason: 'already-rated' }
+    reportError('التقييم', e)
+    return { ok: false, reason: 'error' }
+  }
+}
+
+/**
+ * خصم عمولة 5% من محفظة السواق في معاملة ذرّية (v48): بتتخصم من الرصيد
+ * الأول (من أحدث قراءة على السيرفر)، والباقي مديونية — فإنهاء رحلة
+ * من جهازين في نفس اللحظة مبيخصمش العمولة مرتين من رصيد قديم.
+ */
+export async function applyCommissionTx(
+  driverCode: string,
+  commission: number,
+): Promise<{ ok: boolean; debt?: number; balance?: number }> {
+  try {
+    const db = getDb()
+    if (!db) return { ok: false }
+    const result = await runTransaction(db, async (tx) => {
+      const dRef = doc(db, 'drivers', driverCode)
+      const dSnap = await tx.get(dRef)
+      const curBalance = Number(dSnap.data()?.balance ?? 0)
+      const curDebt = Number(dSnap.data()?.debt ?? 0)
+      const fromBalance = Math.min(curBalance, commission)
+      const balance = Math.round((curBalance - fromBalance) * 100) / 100
+      const debt = Math.round((curDebt + commission - fromBalance) * 100) / 100
+      tx.set(dRef, { debt, balance }, { merge: true })
+      return { debt, balance }
+    })
+    return { ok: true, ...result }
+  } catch (e) {
+    reportError('العمولة', e)
+    return { ok: false }
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  شات الدعم (v50) — محادثة واحدة لكل رقم موبايل في supportChats/{phone}.
+//  المساعد (زعتر) بيقرا المحادثات من Firestore وبيرد عليها من برّه التطبيق،
+//  والأدمن بيرد من لوحة الإدارة. العميل/الكابتن بيشوف محادثته هو بس.
+// ---------------------------------------------------------------------------
+
+/** يحوّل مستند محادثة دعم من Firestore لكائن SupportChat كامل. */
+function normalizeSupportChat(id: string, data: Record<string, unknown>): SupportChat {
+  const d = data as unknown as Partial<SupportChat>
+  const rawMsgs = Array.isArray(d.messages) ? d.messages : []
+  return {
+    phone: d.phone ?? id,
+    app: 'delivery-kafr-hakim',
+    role: d.role === 'driver' ? 'driver' : 'passenger',
+    name: typeof d.name === 'string' ? d.name : '',
+    messages: rawMsgs
+      .filter((m): m is SupportMessage => !!m && typeof (m as SupportMessage).text === 'string')
+      .map((m) => ({
+        sender: m.sender === 'admin' ? 'admin' : m.sender === 'agent' ? 'agent' : 'customer',
+        text: m.text,
+        createdAt: typeof m.createdAt === 'string' ? m.createdAt : '',
+      })),
+    lastCustomerAt: typeof d.lastCustomerAt === 'string' ? d.lastCustomerAt : null,
+    lastReplyAt: typeof d.lastReplyAt === 'string' ? d.lastReplyAt : null,
+    needsAdmin: d.needsAdmin === true,
+  }
+}
+
+/**
+ * اشتراك حي في كل محادثات الدعم — للإدارة بس: أي رسالة جديدة من عميل
+ * أو كابتن تظهر فوراً في قسم الدعم عند الأدمن.
+ */
+export function subscribeSupportChats(cb: (chats: SupportChat[]) => void): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const unsub = onSnapshot(
+      collection(db, 'supportChats'),
+      (snap) => cb(snap.docs.map((d) => normalizeSupportChat(d.id, d.data() as Record<string, unknown>))),
+      (err) => reportError('مزامنة محادثات الدعم', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة محادثات الدعم', e)
+    return () => {}
+  }
+}
+
+/**
+ * اشتراك حي في محادثة دعم واحدة (بالرقم) — الرد من الدعم أو الأدمن
+ * يوصل فوراً لشاشة الشات عند العميل/الكابتن، من غير تحديث يدوي.
+ */
+export function subscribeSupportChat(phone: string, cb: (chat: SupportChat | null) => void): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const unsub = onSnapshot(
+      doc(db, 'supportChats', phone),
+      (snap) => cb(snap.exists() ? normalizeSupportChat(snap.id, snap.data() as Record<string, unknown>) : null),
+      (err) => reportError('مزامنة شات الدعم', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة شات الدعم', e)
+    return () => {}
+  }
+}
+
+/**
+ * يبعت رسالة دعم في معاملة ذرّية: لو المحادثة مش موجودة بتتإنشئ
+ * (أول رسالة)، ولو موجودة الرسالة بتتضاف بـ arrayUnion — فبعتتين
+ * متزامنتين من جهازين مبيضيّعوش بعض. بيرجع false لو مفيش إعداد
+ * Firebase أو فشل الإرسال (والواجهة بتقول للمستخدم يحاول تاني).
+ */
+export async function sendSupportMessage(input: {
+  phone: string
+  role: 'passenger' | 'driver'
+  name: string
+  sender: SupportMessage['sender']
+  text: string
+}): Promise<boolean> {
+  try {
+    const db = getDb()
+    if (!db) return false
+    const now = new Date().toISOString()
+    const msg: SupportMessage = { sender: input.sender, text: input.text, createdAt: now }
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, 'supportChats', input.phone)
+      const snap = await tx.get(ref)
+      if (!snap.exists()) {
+        tx.set(ref, {
+          phone: input.phone,
+          app: 'delivery-kafr-hakim',
+          role: input.role,
+          name: input.name,
+          messages: [msg],
+          lastCustomerAt: input.sender === 'customer' ? now : null,
+          lastReplyAt: input.sender === 'customer' ? null : now,
+          needsAdmin: false,
+        })
+        return
+      }
+      const patch: Record<string, unknown> = { messages: arrayUnion(msg) }
+      if (input.sender === 'customer') patch.lastCustomerAt = now
+      else patch.lastReplyAt = now
+      tx.update(ref, patch)
+    })
+    return true
+  } catch (e) {
+    reportError('رسالة الدعم', e)
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  مكالمات صوتية VoIP (v52) — الإشارة عبر مستند واحد لكل رحلة:
+//  calls/{orderNo} — offer/answer + مرشحو ICE + حالة المكالمة.
+//  المستند بيتكتب مرة واحدة عند بدء المكالمة، وبعدها تحديثات صغيرة
+//  (الإجابة، المرشحون، الإنهاء). الصوت نفسه WebRTC مباشر بين الجهازين.
+// ---------------------------------------------------------------------------
+
+/** يحوّل مستند مكالمة من Firestore لكائن RideCall كامل. */
+function normalizeCall(id: string, data: Record<string, unknown>): RideCall {
+  const d = data as unknown as Partial<RideCall>
+  const sdp = (v: unknown): { type: string; sdp: string } | null => {
+    if (!v || typeof v !== 'object') return null
+    const o = v as { type?: unknown; sdp?: unknown }
+    return typeof o.type === 'string' && typeof o.sdp === 'string' ? { type: o.type, sdp: o.sdp } : null
+  }
+  const cands = (v: unknown): RTCIceCandidateInit[] => (Array.isArray(v) ? (v as RTCIceCandidateInit[]) : [])
+  return {
+    rideId: d.rideId ?? id,
+    status: d.status === 'active' || d.status === 'ended' || d.status === 'declined' ? d.status : 'ringing',
+    callerRole: d.callerRole === 'driver' ? 'driver' : 'passenger',
+    callerName: typeof d.callerName === 'string' ? d.callerName : '',
+    offer: sdp(d.offer),
+    answer: sdp(d.answer),
+    callerCandidates: cands(d.callerCandidates),
+    calleeCandidates: cands(d.calleeCandidates),
+    updatedAt: typeof d.updatedAt === 'number' ? d.updatedAt : 0,
+  }
+}
+
+/**
+ * اشتراك حي في مستند مكالمة رحلة واحدة — أي تغيير (رنين، إجابة،
+ * مرشح ICE جديد، إنهاء) يوصل فوراً للطرفين. null لو المستند
+ * مش موجود لسه (مفيش مكالمة). في الوضع التجريبي المحلي يرجع فاضي.
+ */
+export function subscribeCall(rideId: string, cb: (call: RideCall | null) => void): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const unsub = onSnapshot(
+      doc(db, 'calls', rideId),
+      (snap) => cb(snap.exists() ? normalizeCall(snap.id, snap.data() as Record<string, unknown>) : null),
+      (err) => reportError('مزامنة المكالمة', err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError('مزامنة المكالمة', e)
+    return () => {}
+  }
+}
+
+/** ينشئ مستند المكالمة (أول ما المتصل يبدأ مكالمة) — false لو مفيش إعداد. */
+export async function createCallDoc(call: RideCall): Promise<boolean> {
+  try {
+    const db = getDb()
+    if (!db) return false
+    await setDoc(doc(db, 'calls', call.rideId), call as unknown as Record<string, unknown>)
+    return true
+  } catch (e) {
+    reportError('إنشاء المكالمة', e)
+    return false
+  }
+}
+
+/** يحدّث مستند مكالمة (الإجابة، الحالة، الإنهاء) — بيرجع false لو فشل. */
+export async function updateCallDoc(rideId: string, patch: Record<string, unknown>): Promise<boolean> {
+  try {
+    const db = getDb()
+    if (!db) return false
+    await setDoc(doc(db, 'calls', rideId), { ...patch, updatedAt: Date.now() }, { merge: true })
+    return true
+  } catch (e) {
+    reportError('تحديث المكالمة', e)
+    return false
+  }
+}
+
+/** يضيف مرشح ICE لمستند المكالمة (arrayUnion — مبيضيّعش المرشحين اللي قبله). */
+export async function addCallCandidate(
+  rideId: string,
+  side: 'caller' | 'callee',
+  candidate: RTCIceCandidateInit,
+): Promise<void> {
+  try {
+    const db = getDb()
+    if (!db) return
+    const field = side === 'caller' ? 'callerCandidates' : 'calleeCandidates'
+    await setDoc(doc(db, 'calls', rideId), { [field]: arrayUnion(candidate), updatedAt: Date.now() }, { merge: true })
+  } catch (e) {
+    reportError('مرشح ICE', e)
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  المطاعم (دليفري كفر حكيم v1) — مجموعات Firestore:
+//    restaurants/{id}        — المطعم: الاسم، صاحب المطعم، العنوان، approved، commissionRate
+//    menuItems/{id}          — صنف في منيو مطعم: restaurantId + الاسم + السعر + available
+//    restaurantOrders/{id}   — طلب أكل: الأصناف + foodTotal + deliveryFee + commission
+//                              + status + كابتن الموتوسيكل اللي هيوصله
+//  الدفع كاش عند الاستلام في v1 — مفيش دفع أونلاين.
+// ---------------------------------------------------------------------------
+
+function normalizeRestaurant(id: string, data: Record<string, unknown>): Restaurant {
+  const d = data as unknown as Partial<Restaurant>
+  return {
+    id: d.id ?? id,
+    name: d.name ?? 'مطعم',
+    ownerPhone: d.ownerPhone ?? '',
+    description: d.description ?? '',
+    address: d.address ?? '',
+    photoUrl: d.photoUrl ?? null,
+    approved: d.approved ?? false,
+    commissionRate: d.commissionRate ?? RESTAURANT_COMMISSION_RATE,
+    createdAt: d.createdAt ?? Date.now(),
+  }
+}
+
+function normalizeMenuItem(id: string, data: Record<string, unknown>): MenuItem {
+  const d = data as unknown as Partial<MenuItem>
+  return {
+    id: d.id ?? id,
+    restaurantId: d.restaurantId ?? '',
+    name: d.name ?? 'صنف',
+    price: d.price ?? 0,
+    description: d.description ?? '',
+    photoUrl: d.photoUrl ?? null,
+    available: d.available ?? true,
+  }
+}
+
+function normalizeRestaurantOrder(id: string, data: Record<string, unknown>): RestaurantOrder {
+  const d = data as unknown as Partial<RestaurantOrder>
+  return {
+    id: d.id ?? id,
+    restaurantId: d.restaurantId ?? '',
+    restaurantName: d.restaurantName ?? 'مطعم',
+    customerName: d.customerName ?? 'عميل',
+    customerPhone: d.customerPhone ?? '',
+    items: d.items ?? [],
+    foodTotal: d.foodTotal ?? 0,
+    deliveryFee: d.deliveryFee ?? 0,
+    commission: d.commission ?? 0,
+    address: d.address ?? '',
+    addressLat: d.addressLat ?? null,
+    addressLng: d.addressLng ?? null,
+    note: d.note ?? null,
+    status: d.status ?? 'new',
+    driverCode: d.driverCode ?? null,
+    driverName: d.driverName ?? null,
+    driverPhone: d.driverPhone ?? null,
+    createdAt: d.createdAt ?? Date.now(),
+  }
+}
+
+function subscribeCollection<T>(
+  collectionName: string,
+  normalize: (id: string, data: Record<string, unknown>) => T,
+  cb: (items: T[]) => void,
+  label: string,
+  constraints?: QueryConstraint[],
+): () => void {
+  try {
+    const db = getDb()
+    if (!db) return () => {}
+    const q = constraints && constraints.length > 0
+      ? query(collection(db, collectionName), ...constraints)
+      : collection(db, collectionName)
+    const unsub = onSnapshot(
+      q,
+      (snap) => cb(snap.docs.map((d) => normalize(d.id, d.data() as Record<string, unknown>))),
+      (err) => reportError(label, err),
+    )
+    return () => unsub()
+  } catch (e) {
+    reportError(label, e)
+    return () => {}
+  }
+}
+
+/** اشتراك حي في المطاعم — العملاء يشوفوا المعتمدة بس، الأدمن يشوف الكل. */
+export function subscribeRestaurants(cb: (items: Restaurant[]) => void, constraints?: QueryConstraint[]): () => void {
+  return subscribeCollection('restaurants', normalizeRestaurant, cb, 'مزامنة المطاعم', constraints)
+}
+
+/** اشتراك حي في أصناف المنيو. */
+export function subscribeMenuItems(cb: (items: MenuItem[]) => void, constraints?: QueryConstraint[]): () => void {
+  return subscribeCollection('menuItems', normalizeMenuItem, cb, 'مزامنة المنيو', constraints)
+}
+
+/** اشتراك حي في طلبات المطاعم. */
+export function subscribeRestaurantOrders(cb: (items: RestaurantOrder[]) => void, constraints?: QueryConstraint[]): () => void {
+  return subscribeCollection('restaurantOrders', normalizeRestaurantOrder, cb, 'مزامنة طلبات المطاعم', constraints)
+}
+
+/** يحفظ مطعم (إضافة/تعديل) — الأدمن يضيف المطاعم المتعاقد معاها من لوحة الإدارة. */
+export async function saveRestaurant(r: Restaurant): Promise<void> {
+  await saveDoc('restaurants', r.id, r as unknown as Record<string, unknown>)
+}
+
+/** يحفظ صنف منيو (إضافة/تعديل) — صاحب المطعم يدير منيوه من تبويب «مطعم». */
+export async function saveMenuItem(item: MenuItem): Promise<void> {
+  await saveDoc('menuItems', item.id, item as unknown as Record<string, unknown>)
+}
+
+/** ينشئ طلب مطعم جديد — العميل يطلب من المنيو، والدفع كاش عند الاستلام. */
+export async function createRestaurantOrder(order: RestaurantOrder): Promise<void> {
+  await saveDoc('restaurantOrders', order.id, order as unknown as Record<string, unknown>)
+}
+
+/** يحدّث حالة طلب مطعم (تأكيد/تجهيز/جاهز/استلام/توصيل/إلغاء). */
+export async function updateRestaurantOrder(id: string, patch: Record<string, unknown>): Promise<void> {
+  await saveDoc('restaurantOrders', id, patch)
+}

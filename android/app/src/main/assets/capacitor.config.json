@@ -1,0 +1,19 @@
+{
+	"appId": "com.delivery.kafrhakim",
+	"appName": "دليفري كفر حكيم",
+	"webDir": "dist",
+	"backgroundColor": "#fff8ec",
+	"android": {
+		"allowMixedContent": true
+	},
+	"server": {
+		"cleartext": true
+	},
+	"plugins": {
+		"FirebaseAuthentication": {
+			"providers": [
+				"phone"
+			]
+		}
+	}
+}

@@ -1,0 +1,238 @@
+// أيقونات SVG حديثة بدل الإيموجي — خط رفيع وألوان متناسقة مع التطبيق.
+import type { JSX } from 'react'
+
+type IconProps = { className?: string }
+
+function Svg({ className, children }: IconProps & { children: React.ReactNode }) {
+  return (
+    <svg
+      className={className ? `ic ${className}` : 'ic'}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  )
+}
+
+/** راكب — شخص */
+export function IconUser(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" />
+    </Svg>
+  )
+}
+
+/** سواق — عجلة قيادة */
+export function IconDriver(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="2.2" />
+      <path d="M12 14.2 12 20.5M5.5 14.5 10.2 13M18.5 14.5 13.8 13" />
+    </Svg>
+  )
+}
+
+/** محفظة */
+export function IconWallet(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M20 7H5a2 2 0 0 1 0-4h13v4" />
+      <path d="M20 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5" />
+      <path d="M20 12h-4a1.5 1.5 0 0 0 0 3h4" />
+    </Svg>
+  )
+}
+
+/** إدارة — درع */
+export function IconShield(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6L12 3z" />
+      <path d="m9 11.5 2.2 2.2L15.5 9.5" />
+    </Svg>
+  )
+}
+
+/** دبوس موقع */
+export function IconPin(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" />
+      <circle cx="12" cy="10" r="2.6" />
+    </Svg>
+  )
+}
+
+/** هاتف */
+export function IconPhone(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M5 4h4l1.5 4.5L8 10.5a12 12 0 0 0 5.5 5.5l2-2.5L20 15v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />
+    </Svg>
+  )
+}
+
+/** إنهاء مكالمة — هاتف مقلوب مع خط */
+export function IconPhoneOff(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M10.7 13.3 5 4h4l1.5 4.5L8 10.5a12 12 0 0 0 5.5 5.5l2-2.5L20 15v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />
+      <path d="m3 3 18 18" />
+    </Svg>
+  )
+}
+
+/** ميكروفون — للمكالمات الصوتية */
+export function IconMic(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <rect x="9" y="2.5" width="6" height="11" rx="3" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5M8.5 21.5h7" />
+    </Svg>
+  )
+}
+
+/** ميكروفون مكتوم — خط عليه */
+export function IconMicOff(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <rect x="9" y="2.5" width="6" height="11" rx="3" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5M8.5 21.5h7" />
+      <path d="m3 3 18 18" />
+    </Svg>
+  )
+}
+
+/** سماعة خارجية — مكبر صوت */
+export function IconVolume(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M11 5 6.5 9H3v6h3.5L11 19V5z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+    </Svg>
+  )
+}
+
+/** صح */
+export function IconCheck(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12.2 2.4 2.4 4.6-5" />
+    </Svg>
+  )
+}
+
+/** قائمة طلبات */
+export function IconList(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M8.5 6.5h12M8.5 12h12M8.5 17.5h12" />
+      <circle cx="4" cy="6.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="17.5" r="1" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
+/** سجل الرحلات — ساعة بعقارب */
+export function IconHistory(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M3.5 12a8.5 8.5 0 1 1 2.5 6" />
+      <path d="M3.5 12H7l-1.5 2.5" />
+      <path d="M12 7.5V12l3 2" />
+    </Svg>
+  )
+}
+
+/** جرس تنبيه */
+export function IconBell(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+    </Svg>
+  )
+}
+
+/** إعدادات — ترس */
+export function IconSettings(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </Svg>
+  )
+}
+
+/** تبديل — سهمان متقابلان */
+export function IconSwap(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M8 3 4 7l4 4" />
+      <path d="M4 7h16" />
+      <path d="m16 21 4-4-4-4" />
+      <path d="M20 17H4" />
+    </Svg>
+  )
+}
+
+/** تعديل — قلم */
+export function IconEdit(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </Svg>
+  )
+}
+
+/** اتجاهات — سهم ملاحة */
+export function IconNav(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="m22 2-7 20-4-9-9-4 20-7z" />
+    </Svg>
+  )
+}
+
+/** رجوع — سهم للخلف */
+export function IconBack(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M19 12H5" />
+      <path d="m12 19-7-7 7-7" />
+    </Svg>
+  )
+}
+
+/** مسح — سلة */
+export function IconTrash(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6M14 11v6" />
+    </Svg>
+  )
+}
+
+/** شات دعم — فقاعة محادثة */
+export function IconChat(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-3-.4-4.2-1.1L3 20l1.1-5.3A8.5 8.5 0 1 1 21 11.5z" />
+      <path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01" />
+    </Svg>
+  )
+}

@@ -1,0 +1,137 @@
+# مسودة قواعد Firestore — دليفري كفر حكيم (v1 — مبنية على مسودة ind toktok v48)
+# ⚠️ مسودة غير مختبَرة — لا تلصقها إلا بعد تثبيت v1 واختبار الدخول والطلب.
+# لو أي حاجة وقفت بعد اللصق، ارجع فوراً للقواعد المفتوحة القديمة:
+#   allow read, write: if true;
+# المكان: Firebase Console → Firestore Database → Rules → لصق → Publish.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    // الـ UID بتاع الـ Worker هو أرقام التليفون نفسها (مثلاً 201550364683)
+    function myPhone() { return '+' + request.auth.uid; }
+    function isAdmin() {
+      return signedIn() && (myPhone() == '+201550364683' || myPhone() == '+201515149075');
+    }
+
+    // العميل: ملفه هو بس. الأدمن: الكل.
+    match /passengers/{phone} {
+      allow read, write: if signedIn() && myPhone() == phone;
+      allow read, write: if isAdmin();
+      // تقييم العميل (من سواق): بيتغير المتوسط والعداد بس.
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratingAvg', 'ratingCount']);
+    }
+
+    // السواق: أي حد موثّق يقرأ (عشان العميل يشوف الكابتن بتاعه والمتاحين
+    // على الخريطة)، والكتابة لصاحب الملف بس، والتقييم للمتوسط والعداد بس.
+    match /drivers/{code} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.resource.data.phone == myPhone();
+      allow delete: if signedIn() && resource.data.phone == myPhone();
+      allow read, write: if isAdmin();
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratingAvg', 'ratingCount']);
+    }
+
+    // الرحلة: إنشاؤها للراكب صاحبها؛ قراءتها لصاحبها أو كابتنها أو لأي سواق
+    // لو لسه مستنية عروض (searching)؛ تحديثها لصاحبها أو كابتنها؛
+    // وأي سواق يقدر يضيف عرضه بس على رحلة مستنية (حقل offers بس).
+    match /rides/{orderNo} {
+      allow create: if signedIn() && request.resource.data.passengerPhone == myPhone();
+      allow read: if signedIn() && (
+        resource.data.passengerPhone == myPhone()
+        || resource.data.driverCode == 'D-' + request.auth.uid
+        || resource.data.status == 'searching'
+      );
+      allow update: if signedIn() && (
+        resource.data.passengerPhone == myPhone()
+        || resource.data.driverCode == 'D-' + request.auth.uid
+      );
+      allow update: if signedIn() && resource.data.status == 'searching'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['offers']);
+      allow read, write: if isAdmin();
+    }
+
+    // المطعم: قراءته لأي موثّق لو معتمد؛ إنشاؤه وتعديله للأدمن بس.
+    match /restaurants/{id} {
+      allow read: if signedIn() && (resource.data.approved == true || isAdmin());
+      allow read, write: if isAdmin();
+    }
+
+    // صنف المنيو: قراءته لأي موثّق؛ كتابته لصاحب المطعم أو الأدمن.
+    match /menuItems/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin()
+        || (signedIn() && get(/databases/$(database)/documents/restaurants/$(resource.data.restaurantId)).data.ownerPhone == myPhone());
+      allow create, update: if signedIn()
+        && get(/databases/$(database)/documents/restaurants/$(request.resource.data.restaurantId)).data.ownerPhone == myPhone();
+    }
+
+    // طلب المطعم: إنشاؤه للعميل صاحبه؛ قراءته لصاحبه أو صاحب المطعم
+    // أو كابتن التوصيل؛ تحديث حالته لصاحب المطعم أو الكابتن أو الأدمن.
+    match /restaurantOrders/{id} {
+      allow create: if signedIn() && request.resource.data.customerPhone == myPhone();
+      allow read: if signedIn() && (
+        resource.data.customerPhone == myPhone()
+        || resource.data.driverCode == 'D-' + request.auth.uid
+        || get(/databases/$(database)/documents/restaurants/$(resource.data.restaurantId)).data.ownerPhone == myPhone()
+      );
+      allow update: if signedIn() && (
+        get(/databases/$(database)/documents/restaurants/$(resource.data.restaurantId)).data.ownerPhone == myPhone()
+        || resource.data.driverCode == 'D-' + request.auth.uid
+      );
+      allow read, write: if isAdmin();
+    }
+
+    // طلب التحويل: إنشاؤه للسواق صاحب الكود؛ قراءته لصاحبه أو الأدمن؛
+    // الاعتماد/الرفض للأدمن بس.
+    match /payments/{id} {
+      allow create: if signedIn() && request.resource.data.driverCode == 'D-' + request.auth.uid;
+      allow read: if signedIn() && resource.data.driverCode == 'D-' + request.auth.uid;
+      allow read, write: if isAdmin();
+    }
+
+    // الإعدادات: القراءة لأي موثّق (بوابة الإطلاق + رقم المحفظة)،
+    // الكتابة للأدمن بس — ما عدا عدّاد الرحلات: أي راكب يزوده 1 بس.
+    match /settings/{doc} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /settings/counters {
+      allow read: if signedIn();
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rideSeq'])
+        && request.resource.data.rideSeq == resource.data.rideSeq + 1;
+    }
+
+    // قوايم الانتظار: التسجيل برقمك أنت؛ القراءة والمسح للأدمن بس.
+    match /waitlist/{id} {
+      allow create: if signedIn() && request.resource.data.phone == myPhone();
+      allow read, write: if isAdmin();
+    }
+    match /launchWaitlist/{id} {
+      allow create: if signedIn() && request.resource.data.phone == myPhone();
+      allow read, write: if isAdmin();
+    }
+  }
+}
+
+# ---- حدود معروفة (حتى مع القواعد دي) ----
+# 1. رحلة searching فيها رقم الراكب وإحداثيات الركوب — أي سواق موثّق يقدر
+#    يقراها (ده أساس شغله: يشوف الطلبات المتاحة). الحل الكامل: مجموعة
+#    طلبات عامة من غير رقم، والرقم في مجموعة فرعية بعد القبول — شغل قادم.
+# 2. مستند السواق فيه صورة البطاقة — أي موثّق يقدر يقراها من الـ API مباشرة
+#    (التطبيق نفسه بيخفيها عن غير الأدمن، لكن القواعد هنا مش بتخفي حقل).
+#    الحل الكامل: البطاقة في مجموعة فرعية للأدمن بس — شغل قادم.
+# 3. عرض سواق على رحلة searching: القواعد بتسمح بتغيير حقل offers بس،
+#    لكنها مش بتتأكد إن العرض باسم اللي باعته — التحقق الكامل محتاج
+#    Cloud Function (محتاج Blaze).
+#
+# ---- اختبار سريع بعد اللصق (من موبايلك) ----
+# 1. افتح التطبيق وسجّل دخول كعميل — لازم يدخل عادي.
+# 2. اطلب رحلة (لسه البوابة مقفولة للركاب — جرّب من شاشة السواق: ابعت عرض
+#    على طلب تجريبي، أو افتح لوحة الإدارة — لازم تفتح).
+# 3. لو ظهر خطأ صلاحيات (permission-denied) في أي خطوة، ارجع للقواعد
+#    المفتوحة فوراً وبلّغني بالخطوة اللي وقفت.
