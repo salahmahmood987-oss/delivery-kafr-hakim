@@ -2419,12 +2419,36 @@ export default function App() {
   useEffect(() => {
     if (!firebaseEnabled) return
     const unsubs: Array<() => void> = []
+    // (v11) دمج واعٍ بالمحتوى زي mergeRides/mergePayments — النسخة اللي قبلها
+    // كانت بتقارن الطول بس (`merged.length === ...`) فأي تغيير حالة لطلب
+    // موجود (جديد ← مؤكد ← تجهيز ← جاهز...) كان بيترمي والشاشة تفضل
+    // على الحالة القديمة لحد ما التطبيق يتقفل ويتفتح تاني.
     const mergeOrders = (remote: RestaurantOrder[]) => {
       setState((s) => {
         const byId = new Map(s.restaurantOrders.map((o) => [o.id, o]))
-        remote.forEach((o) => byId.set(o.id, o))
-        const merged = [...byId.values()]
-        return merged.length === s.restaurantOrders.length ? s : { ...s, restaurantOrders: merged }
+        let changed = false
+        const out = [...s.restaurantOrders]
+        for (const ro of remote) {
+          const ex = byId.get(ro.id)
+          if (!ex) {
+            out.push(ro)
+            changed = true
+            continue
+          }
+          const same =
+            ex.status === ro.status &&
+            ex.driverCode === ro.driverCode &&
+            ex.driverName === ro.driverName &&
+            ex.driverPhone === ro.driverPhone &&
+            ex.foodTotal === ro.foodTotal &&
+            ex.deliveryFee === ro.deliveryFee &&
+            ex.commission === ro.commission
+          if (!same) {
+            out[out.findIndex((x) => x.id === ro.id)] = ro
+            changed = true
+          }
+        }
+        return changed ? { ...s, restaurantOrders: out } : s
       })
     }
     if (isAdmin) {
