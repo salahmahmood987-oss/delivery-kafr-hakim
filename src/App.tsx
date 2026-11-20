@@ -161,6 +161,16 @@ function rideStatusLabel(s: Ride['status']): string {
     : 'بندور على سواقين…'
 }
 
+// (v10) حالة طلب التحويل بالعربي — بدل 'pending'/'approved'/'rejected' الإنجليزي في واجهة الأدمن
+function paymentStatusLabel(s: string): string {
+  return s === 'pending' ? 'بانتظار المراجعة ⏳' : s === 'approved' ? 'اتوافق عليه ✅' : s === 'rejected' ? 'اترفض ❌' : s
+}
+
+// (v10) حالة بطاقة السواق بالعربي — بدل 'approved'/'rejected'/'none' الإنجليزي في الملف الشخصي
+function idCardStatusLabel(s: string): string {
+  return s === 'approved' ? 'معتمدة ✅' : s === 'rejected' ? 'مرفوضة ❌' : s === 'pending' ? 'بانتظار المراجعة ⏳' : 'مفيش بطاقة'
+}
+
 // تحويل اسم مكان مكتوب لإحداثيات (بحث مجاني عبر OpenStreetMap — مصر فقط)
 async function geocodePlace(label: string): Promise<{ lat: number; lng: number } | null> {
   try {
@@ -2059,7 +2069,7 @@ export default function App() {
           <div className="val green">{money(driverToday.commission)}</div>
         </div>
       </div>
-      <h3><span className="icon-chip sm"><IconList /></span>طلبات المشاوير الواردة حالياً</h3>
+      <div className="kh-sec-head"><h3>طلبات المشاوير الواردة حالياً</h3></div>
       {state.driver.online && (state.driver.currentLat == null || state.driver.currentLng == null) && (
         <p className="warn">⚠️ موقعك مش واصل — شغّل الـ GPS عشان المسافات والطلبات تظهر صح.</p>
       )}
@@ -2068,7 +2078,7 @@ export default function App() {
       )}
       {state.driver.vehicleType === 'motorcycle' && (
         <div>
-          <h3>🍽️ طلبات مطاعم جاهزة للتوصيل</h3>
+          <div className="kh-sec-head"><h3>🍽️ طلبات مطاعم جاهزة للتوصيل</h3></div>
           {state.restaurantOrders.filter((o) => o.status === 'ready' && !o.driverCode).length === 0 && state.restaurantOrders.filter((o) => o.status === 'picked_up' && o.driverCode === state.driver.code).length === 0 && <p className="muted">مفيش طلبات مطاعم جاهزة دلوقتي.</p>}
           {state.restaurantOrders.filter((o) => o.status === 'ready' && !o.driverCode).map((o) => (
             <div key={o.id} className="ride">
@@ -2156,11 +2166,17 @@ export default function App() {
     </div>
   )
 
-  // رحلات الكابتن: الحالية + السابقة (مكتملة أو ملغاة)
+  // رحلات الكابتن: الحالية + السابقة (مكتملة أو ملغاة) (v10: شريط كحلي + كروت طلبات موحّدة)
   const driverTripsView = (
-    <div className="card">
-      <h2><span className="icon-chip"><IconHistory /></span>رحلاتي</h2>
-      <h3><span className="icon-chip sm"><IconPin /></span>رحلتي الحالية</h3>
+    <div className="card kh-dark">
+      <div className="kh-card-head">
+        <div>
+          <span className="lbl">رحلتك الحالية واللي خلصت</span>
+          <b>رحلاتي 🕐</b>
+        </div>
+        <span className="kh-pill">{myPastRides.length} رحلة سابقة</span>
+      </div>
+      <div className="kh-sec-head"><h3>رحلتي الحالية</h3></div>
       {myCurrentRide ? (
         <div className="request-card">
           <div className="map-hero-card">
@@ -2246,28 +2262,39 @@ export default function App() {
       ) : (
         <p>مفيش رحلة شغالة دلوقتي.</p>
       )}
-      <h3><span className="icon-chip sm"><IconHistory /></span>رحلات سابقة</h3>
+      <div className="kh-sec-head"><h3>رحلات سابقة</h3></div>
       {myPastRides.length === 0 && <p>لسه مفيش رحلات مكتملة أو ملغاة.</p>}
       {myPastRides.map((r) => (
-        <div key={r.orderNo} className="ride">
-          {avatar(r.passengerPhotoUrl, r.passengerName)} <b>{r.orderNo}</b> — {r.passengerName} — {rideStatusLabel(r.status)} — <b>{money(r.fare)}</b>
-          {rideTimes(r)}
-          {r.status === 'cancelled' && r.cancelReason && <p className="muted">سبب الإلغاء: {r.cancelReason}</p>}
-          {r.status === 'completed' && r.driverRatingForPassenger === null && (
-            <div>
-              <p>قيّم العميل بعد الرحلة:</p>
-              {stars(ratePassenger, (n) => { setRatePassenger(n); submitRating(r.orderNo, 'driver', n) })}
-            </div>
-          )}
+        <div key={r.orderNo} className="kh-order-card">
+          <span className={`kh-ord-ic${r.status === 'completed' ? ' green' : ' red'}`}>{r.serviceKind === 'delivery' ? '📦' : r.serviceKind === 'ride_motorcycle' ? '🏍️' : '🛺'}</span>
+          <div className="kh-ord-info">
+            <div className="kh-ord-top"><b>{r.orderNo} — {r.passengerName}</b><span className="kh-ord-price">{money(r.fare)}</span></div>
+            <span className={`kh-status${r.status === 'completed' ? ' green' : ' red'}`}>{rideStatusLabel(r.status)}</span>
+            <div className="muted">من: {r.pickup.label} — إلى: {r.destination.label}</div>
+            {rideTimes(r)}
+            {r.status === 'cancelled' && r.cancelReason && <p className="muted">سبب الإلغاء: {r.cancelReason}</p>}
+            {r.status === 'completed' && r.driverRatingForPassenger === null && (
+              <div>
+                <p>قيّم العميل بعد الرحلة:</p>
+                {stars(ratePassenger, (n) => { setRatePassenger(n); submitRating(r.orderNo, 'driver', n) })}
+              </div>
+            )}
+          </div>
         </div>
       ))}
     </div>
   )
 
-  // الملف الشخصي للكابتن: بياناته وبطاقته وصورته
+  // الملف الشخصي للكابتن: بياناته وبطاقته وصورته (v10: لوحة داكنة + شريط كحلي + مختار مركبة زي الرئيسية)
   const driverProfileView = (
-    <div className="card">
-      <h2><span className="icon-chip"><IconUser /></span>الملف الشخصي</h2>
+    <div className="card kh-dark">
+      <div className="kh-card-head">
+        <div>
+          <span className="lbl">بياناتك وبطاقتك وصورتك</span>
+          <b>الملف الشخصي 👤</b>
+        </div>
+        <span className="kh-pill">كودك: {state.driver.code}</span>
+      </div>
       {driverFormOpen ? (
         <>
           <div className="grid">
@@ -2280,24 +2307,24 @@ export default function App() {
             <input placeholder="اللون" value={state.driver.color} onChange={(e) => update({ driver: { ...state.driver, color: e.target.value } })} />
             <input placeholder="الموديل" value={state.driver.model} onChange={(e) => update({ driver: { ...state.driver, model: e.target.value } })} />
           </div>
-          <h3>نوع مركبتك</h3>
+          <div className="kh-sec-head"><h3>نوع مركبتك</h3></div>
           <p className="muted">التوكتوك بيستقبل مشاوير ركاب بس — الموتوسيكل بيستقبل مشاوير ركاب + دليفري + توصيل طلبات مطاعم.</p>
-          <div className="row">
-            <button className={state.driver.vehicleType === 'tuk-tuk' ? 'btn' : 'btn small'} onClick={() => update({ driver: { ...state.driver, vehicleType: 'tuk-tuk' } })}>🛺 توكتوك — مشاوير ركاب</button>
-            <button className={state.driver.vehicleType === 'motorcycle' ? 'btn' : 'btn small'} onClick={() => update({ driver: { ...state.driver, vehicleType: 'motorcycle' } })}>🏍️ موتوسيكل — ركاب + دليفري + مطاعم</button>
+          <div className="kh-veh">
+            <button type="button" className={state.driver.vehicleType === 'tuk-tuk' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'tuk-tuk' } })}>🛺 توكتوك — مشاوير ركاب</button>
+            <button type="button" className={state.driver.vehicleType === 'motorcycle' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'motorcycle' } })}>🏍️ موتوسيكل — ركاب + دليفري + مطاعم</button>
           </div>
           <p>كود السواق: <b>{state.driver.code}</b> — التقييم: {state.driver.ratingAvg} ★ ({state.driver.ratingCount})</p>
-          <h3><span className="icon-chip sm"><IconShield /></span>صورة البطاقة الشخصية</h3>
+          <div className="kh-sec-head"><h3>صورة البطاقة الشخصية</h3></div>
           <p>الصورة بتتضغط تلقائياً قبل الرفع (الحد حوالي 250 كيلوبايت) وتتحفظ في حسابك.</p>
           <PhotoPicker onPick={setIdCardFile} label="اختار صورة البطاقة" />
           <button className="btn" onClick={uploadIdCard} disabled={!idCardFile}>رفع صورة البطاقة</button>
           {state.driver.idCardUrl && (
             <div>
               <img src={state.driver.idCardUrl} alt="صورة البطاقة — اضغط للتكبير" className="shot" onClick={() => setLightbox(state.driver.idCardUrl)} />
-              <p>حالة البطاقة: {state.driver.idCardStatus === 'pending' ? 'بانتظار المراجعة' : state.driver.idCardStatus}</p>
+              <p>حالة البطاقة: {idCardStatusLabel(state.driver.idCardStatus)}</p>
             </div>
           )}
-          <h3><span className="icon-chip sm"><IconUser /></span>صورتي الشخصية (بتظهر للعميل)</h3>
+          <div className="kh-sec-head"><h3>صورتي الشخصية (بتظهر للعميل)</h3></div>
           {state.driver.photoUrl && <img src={state.driver.photoUrl} alt="صورتي الشخصية" className="avatar avatar-lg" />}
           <PhotoPicker onPick={setProfilePhotoFile} label="اختار صورتي" />
           <button className="btn" onClick={() => uploadProfilePhoto('driver')} disabled={!profilePhotoFile}>حفظ صورتي</button>
@@ -2306,7 +2333,7 @@ export default function App() {
       ) : (
         <div className="saved-bar">
           {avatar(state.driver.photoUrl, state.driver.name)} {state.driver.name} — {state.driver.phone} — {VEHICLE_LABELS[state.driver.vehicleType || 'tuk-tuk']} — كودك: <b>{state.driver.code}</b>
-          {state.driver.idCardUrl && <span> — البطاقة: {state.driver.idCardStatus === 'pending' ? 'بانتظار المراجعة' : state.driver.idCardStatus}</span>}
+          {state.driver.idCardUrl && <span> — البطاقة: {idCardStatusLabel(state.driver.idCardStatus)}</span>}
           <button className="btn small" onClick={() => setDriverFormOpen(true)}><IconEdit /> تعديل بياناتي</button>
         </div>
       )}
@@ -2619,11 +2646,11 @@ export default function App() {
           <div key={r.id}>
             <h3>{r.name} — {r.address}</h3>
             <p className="muted">عمولة التطبيق من كل طلب: {Math.round(r.commissionRate * 100)}% من سعر الأكل — الدفع كاش عند الاستلام.</p>
-            <h3>المنيو</h3>
+            <div className="kh-sec-head"><h3>المنيو</h3></div>
             {myMenu.length === 0 && <p className="muted">لسه مضفتش أصناف.</p>}
             {myMenu.map((m) => (
-              <div key={m.id} className="ride">
-                <b>{m.name}</b> — {money(m.price)} — {m.available ? 'متاح ✅' : 'مخفي'}
+              <div key={m.id} className="kh-menu-item">
+                <div className="info"><b>{m.name}</b><span className="price">{money(m.price)}</span> — {m.available ? 'متاح ✅' : 'مخفي'}</div>
                 <button className="btn small" onClick={() => void saveMenuItem({ ...m, available: !m.available })}>{m.available ? 'إخفاء' : 'إظهار'}</button>
               </div>
             ))}
@@ -2645,19 +2672,23 @@ export default function App() {
             >
               أضف صنف للمنيو
             </button>
-            <h3>الطلبات الواصلة</h3>
+            <div className="kh-sec-head"><h3>الطلبات الواصلة</h3></div>
             {myOrders.length === 0 && <p className="muted">لسه مفيش طلبات.</p>}
             {myOrders.map((o) => (
-              <div key={o.id} className="ride">
-                <b>{o.id}</b> — {RESTAURANT_ORDER_LABELS[o.status]} — {money(o.foodTotal + o.deliveryFee)} (كاش 💵)
-                <br />{o.customerName} — {o.customerPhone} — {o.address}
-                <br />{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')}
-                {o.note ? <><br />ملاحظات: {o.note}</> : null}
-                <div className="row">
-                  {o.status === 'new' && <button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'confirmed' })}>تأكيد الطلب ✅</button>}
-                  {o.status === 'confirmed' && <button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'preparing' })}>بدأنا التجهيز 👨‍🍳</button>}
-                  {o.status === 'preparing' && <button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'ready' })}>جاهز للتوصيل 🏍️</button>}
-                  {o.status !== 'cancelled' && o.status !== 'delivered' && <button className="btn danger" onClick={() => void updateRestaurantOrder(o.id, { status: 'cancelled' })}>إلغاء</button>}
+              <div key={o.id} className="kh-order-card">
+                <span className="kh-ord-ic">🍽️</span>
+                <div className="kh-ord-info">
+                  <div className="kh-ord-top"><b>{o.id}</b><span className="kh-ord-price">{money(o.foodTotal + o.deliveryFee)}</span></div>
+                  <span className="kh-status">{RESTAURANT_ORDER_LABELS[o.status]}</span>
+                  <div className="muted">{o.customerName} — {o.customerPhone} — {o.address}</div>
+                  <div className="muted">{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')}</div>
+                  {o.note ? <div className="muted">ملاحظات: {o.note}</div> : null}
+                  <div className="row">
+                    {o.status === 'new' && <button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'confirmed' })}>تأكيد الطلب ✅</button>}
+                    {o.status === 'confirmed' && <button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'preparing' })}>بدأنا التجهيز 👨‍🍳</button>}
+                    {o.status === 'preparing' && <button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'ready' })}>جاهز للتوصيل 🏍️</button>}
+                    {o.status !== 'cancelled' && o.status !== 'delivered' && <button className="btn danger" onClick={() => void updateRestaurantOrder(o.id, { status: 'cancelled' })}>إلغاء</button>}
+                  </div>
                 </div>
               </div>
             ))}
@@ -2667,32 +2698,48 @@ export default function App() {
     </div>
   )
 
-  // طلبات العميل: كل طلباته بحالتها وأوقاتها
+  // طلبات العميل: كل طلباته بحالتها وأوقاتها (v10: كروت طلبات موحّدة زي كروت المطاعم في الرئيسية)
   const passengerTripsView = (
     <div className="card">
-      <h2><span className="icon-chip"><IconList /></span>طلباتي</h2>
-      {myPassengerRides.length === 0 && <p>لسه معملتش أي طلبات.</p>}
-      <h3>🍽️ طلبات المطاعم</h3>
+      <div className="kh-card-head">
+        <div>
+          <span className="lbl">مشاويرك وطلبات أكلك في مكان واحد</span>
+          <b>طلباتي 🧾</b>
+        </div>
+        <span className="kh-pill">{myPassengerRides.length + state.restaurantOrders.filter((o) => state.passenger && o.customerPhone === state.passenger.phone).length} طلب</span>
+      </div>
+      {myPassengerRides.length === 0 && state.restaurantOrders.filter((o) => state.passenger && o.customerPhone === state.passenger.phone).length === 0 && <p>لسه معملتش أي طلبات.</p>}
+      <div className="kh-sec-head"><h3>🍽️ طلبات المطاعم</h3></div>
       {state.restaurantOrders.filter((o) => state.passenger && o.customerPhone === state.passenger.phone).length === 0 && <p className="muted">لسه معملتش أي طلبات أكل.</p>}
       {state.restaurantOrders.filter((o) => state.passenger && o.customerPhone === state.passenger.phone).sort((a, b) => b.createdAt - a.createdAt).map((o) => (
-        <div key={o.id} className="ride">
-          <b>{o.id}</b> — {o.restaurantName} — {RESTAURANT_ORDER_LABELS[o.status]} — <b>{money(o.foodTotal + o.deliveryFee)}</b> (كاش 💵)
-          <br />{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')} — التوصيل: {o.address}
-          {o.driverName ? <><br />الكابتن: {o.driverName} — <a className="phone-chip" href={`tel:${o.driverPhone}`}><IconPhone /> {o.driverPhone}</a></> : null}
+        <div key={o.id} className="kh-order-card">
+          <span className="kh-ord-ic">🍔</span>
+          <div className="kh-ord-info">
+            <div className="kh-ord-top"><b>{o.id} — {o.restaurantName}</b><span className="kh-ord-price">{money(o.foodTotal + o.deliveryFee)}</span></div>
+            <span className="kh-status">{RESTAURANT_ORDER_LABELS[o.status]}</span>
+            <div className="muted">{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')} — التوصيل: {o.address}</div>
+            {o.driverName ? <div className="muted">الكابتن: {o.driverName} — <a className="phone-chip" href={`tel:${o.driverPhone}`}><IconPhone /> {o.driverPhone}</a></div> : null}
+          </div>
         </div>
       ))}
+      <div className="kh-sec-head"><h3>🚗 مشاويري</h3></div>
+      {myPassengerRides.length === 0 && <p className="muted">لسه معملتش أي مشاوير.</p>}
       {myPassengerRides.map((r) => (
-        <div key={r.orderNo} className="ride">
-          <b>{r.orderNo}</b> — {r.status === 'matched' || r.status === 'driver_arrived' || r.status === 'on_trip' ? (<>{avatar(r.driverPhotoUrl, r.driverName || 'الكابتن')} الكابتن {r.driverName}</>) : rideStatusLabel(r.status)} — <b>{money(r.fare)}</b>
-          <br />من: {r.pickup.label} — إلى: {r.destination.label}
-          {rideTimes(r)}
-          {r.status === 'cancelled' && r.cancelReason && <p className="muted">سبب الإلغاء: {r.cancelReason}</p>}
-          {r.status === 'completed' && r.passengerRatingForDriver === null && (
-            <div>
-              <p>قيّم الكابتن بعد الرحلة (تقييمك يظهر للعميل اللي بعده):</p>
-              {stars(rateDriver, (n) => { setRateDriver(n); submitRating(r.orderNo, 'passenger', n) })}
-            </div>
-          )}
+        <div key={r.orderNo} className="kh-order-card">
+          <span className="kh-ord-ic">{r.serviceKind === 'delivery' ? '📦' : r.serviceKind === 'ride_motorcycle' ? '🏍️' : '🛺'}</span>
+          <div className="kh-ord-info">
+            <div className="kh-ord-top"><b>{r.orderNo}</b><span className="kh-ord-price">{money(r.fare)}</span></div>
+            <span className={`kh-status${r.status === 'completed' ? ' green' : r.status === 'cancelled' ? ' red' : ''}`}>{r.status === 'matched' || r.status === 'driver_arrived' || r.status === 'on_trip' ? `الكابتن ${r.driverName}` : rideStatusLabel(r.status)}</span>
+            <div className="muted">من: {r.pickup.label} — إلى: {r.destination.label}</div>
+            {rideTimes(r)}
+            {r.status === 'cancelled' && r.cancelReason && <p className="muted">سبب الإلغاء: {r.cancelReason}</p>}
+            {r.status === 'completed' && r.passengerRatingForDriver === null && (
+              <div>
+                <p>قيّم الكابتن بعد الرحلة (تقييمك يظهر للعميل اللي بعده):</p>
+                {stars(rateDriver, (n) => { setRateDriver(n); submitRating(r.orderNo, 'passenger', n) })}
+              </div>
+            )}
+          </div>
         </div>
       ))}
     </div>
@@ -2715,6 +2762,31 @@ export default function App() {
         </div>
       </div>
     </header>
+  )
+
+  // (v10) شريط التنقل السفلي — نفس شريط الرئيسية بالظبط، مشترك بين
+  // الرئيسية وكل صفحات العميل التانية (طلباتي/الدعم/الملف الشخصي/مطعمي)
+  // بدل صف التبويبات المنسوخ من ind toktok — الأيقونات في الشريط العلوي
+  // هي اللي بتودي للدعم والملف الشخصي، زي الرئيسية.
+  const passengerBottomNav = (
+    <nav className="kh-bottomnav">
+      <button type="button" className={role === 'passenger' && custTab === 'home' ? 'active' : ''} onClick={() => { setRole('passenger'); setCustTab('home') }}><span className="kh-nav-ic">🏠</span><span>الرئيسية</span></button>
+      <button type="button" className={role === 'passenger' && custTab === 'rides' ? 'active' : ''} onClick={() => { setRole('passenger'); if (serviceKind === 'delivery' || serviceKind === 'restaurant') setServiceKind('ride_tuktuk'); setCustTab('rides') }}><span className="kh-nav-ic">🏍️</span><span>مشوار</span></button>
+      <button type="button" className={role === 'passenger' && custTab === 'food' ? 'active' : ''} onClick={() => { setRole('passenger'); setCustTab('food') }}><span className="kh-nav-ic">🍔</span><span>مطاعم</span></button>
+      <button type="button" className={role === 'passenger' && custTab === 'errand' ? 'active' : ''} onClick={() => { setRole('passenger'); setServiceKind('delivery'); setCustTab('errand') }}><span className="kh-nav-ic">📦</span><span>طلب خاص</span></button>
+      <button type="button" className={role === 'myRequests' ? 'active' : ''} onClick={() => setRole('myRequests')}><span className="kh-nav-ic">🕐</span><span>طلباتي</span></button>
+    </nav>
+  )
+
+  // (v10) شريط التنقل السفلي للسواق — نفس لغة الرئيسية بس على الغامق
+  const driverBottomNav = (
+    <nav className="kh-bottomnav dark">
+      <button type="button" className={role === 'driver' ? 'active' : ''} onClick={() => setRole('driver')}><span className="kh-nav-ic">🛺</span><span>الطلبات</span></button>
+      <button type="button" className={role === 'trips' ? 'active' : ''} onClick={() => setRole('trips')}><span className="kh-nav-ic">🕐</span><span>رحلاتي</span></button>
+      <button type="button" className={role === 'wallet' ? 'active' : ''} onClick={() => setRole('wallet')}><span className="kh-nav-ic">💰</span><span>المحفظة</span></button>
+      <button type="button" className={role === 'support' ? 'active' : ''} onClick={() => setRole('support')}><span className="kh-nav-ic">💬</span><span>الدعم{hasSupportReply ? ' 🔴' : ''}</span></button>
+      <button type="button" className={role === 'profile' ? 'active' : ''} onClick={() => setRole('profile')}><span className="kh-nav-ic">👤</span><span>الملف الشخصي</span></button>
+    </nav>
   )
 
   // نموذج التسجيل برقم التليفون — مشترك بين الرئيسية والملف الشخصي
@@ -3016,26 +3088,37 @@ export default function App() {
             </div>
           )}
           {custTab === 'orders' && passengerTripsView}
-          <nav className="kh-bottomnav">
-            <button type="button" className={custTab === 'home' ? 'active' : ''} onClick={() => setCustTab('home')}><span className="kh-nav-ic">🏠</span><span>الرئيسية</span></button>
-            <button type="button" className={custTab === 'rides' ? 'active' : ''} onClick={() => { if (serviceKind === 'delivery' || serviceKind === 'restaurant') setServiceKind('ride_tuktuk'); setCustTab('rides') }}><span className="kh-nav-ic">🏍️</span><span>مشوار</span></button>
-            <button type="button" className={custTab === 'food' ? 'active' : ''} onClick={() => setCustTab('food')}><span className="kh-nav-ic">🍔</span><span>مطاعم</span></button>
-            <button type="button" className={custTab === 'errand' ? 'active' : ''} onClick={() => { setServiceKind('delivery'); setCustTab('errand') }}><span className="kh-nav-ic">📦</span><span>طلب خاص</span></button>
-            <button type="button" className={custTab === 'orders' ? 'active' : ''} onClick={() => setCustTab('orders')}><span className="kh-nav-ic">🕐</span><span>طلباتي</span></button>
-          </nav>
+          {passengerBottomNav}
         </>
       )}
     </>
   )
 
-  // الملف الشخصي للعميل: بياناته وصورته وكوده وتقييمه
+  // الملف الشخصي للعميل: بياناته وصورته وكوده وتقييمه (v10: بطل كهرماني زي الرئيسية + أقسام)
   const passengerProfileView = (
     <div className="card">
-      <h2><span className="icon-chip"><IconUser /></span>الملف الشخصي</h2>
+      <div className="kh-card-head">
+        <div>
+          <span className="lbl">حسابك في دليفري كفر حكيم</span>
+          <b>الملف الشخصي 👤</b>
+        </div>
+      </div>
       {!state.passenger ? (
         <p className="muted">جارٍ تجهيز ملفك…</p>
       ) : (
         <>
+          <div className="kh-hero">
+            <div className="kh-prof-id">
+              {avatar(state.passenger.photoUrl, state.passenger.name)}
+              <div>
+                <h2>{state.passenger.name}</h2>
+                <p>{state.passenger.phone}</p>
+                <p>تقييمك: {state.passenger.ratingAvg} ★ ({state.passenger.ratingCount})</p>
+                <span className="kh-prof-code">كودك: {state.passenger.code}</span>
+              </div>
+            </div>
+          </div>
+          <div className="kh-sec-head"><h3>بياناتي</h3></div>
           <div className="saved-bar">
             <IconUser /> {state.passenger.name} — {state.passenger.phone} — كودك: <b>{state.passenger.code}</b> <IconCheck /> موثق
             <button className="btn small soft" onClick={clearPassengerVerification}><IconEdit /> تعديل الرقم</button>
@@ -3043,14 +3126,13 @@ export default function App() {
           <div className="profile-box">
             {avatar(state.passenger.photoUrl, state.passenger.name)}
             <div>
-              <b>ملفي الشخصي — {state.passenger.name}</b>
-              <p className="muted">صورتك بتظهر للكابتن لما تطلب رحلة</p>
+              <b>صورتك بتظهر للكابتن لما تطلب رحلة</b>
+              <p className="muted">غيّر اسمك أو صورتك من هنا</p>
               <input placeholder="الاسم" value={state.passenger.name} onChange={(e) => { if (state.passenger) update({ passenger: { ...state.passenger, name: e.target.value } }) }} />
               <PhotoPicker onPick={setProfilePhotoFile} label="اختار صورتي" />
               <button className="btn small" onClick={() => uploadProfilePhoto('passenger')} disabled={!profilePhotoFile}>حفظ صورتي</button>
             </div>
           </div>
-          <p>تقييمك: {state.passenger.ratingAvg} ★ ({state.passenger.ratingCount})</p>
           <button className="btn danger" onClick={clearPassengerVerification}>تسجيل خروج</button>
         </>
       )}
@@ -3078,11 +3160,17 @@ export default function App() {
 
   const walletView = (
     <div className="card">
-      <h2><span className="icon-chip green"><IconWallet /></span>محفظة الكابتن</h2>
-      <div className="tabs">
-        <button className={walletPeriod === 'day' ? 'tab active' : 'tab'} onClick={() => setWalletPeriod('day')}>📅 اليوم</button>
-        <button className={walletPeriod === 'week' ? 'tab active' : 'tab'} onClick={() => setWalletPeriod('week')}>🗓️ الأسبوع</button>
-        <button className={walletPeriod === 'month' ? 'tab active' : 'tab'} onClick={() => setWalletPeriod('month')}>📆 الشهر</button>
+      <div className="kh-card-head">
+        <div>
+          <span className="lbl">مكسبك ومديونيتك في مكان واحد</span>
+          <b>محفظة الكابتن 💰</b>
+        </div>
+        <span className="kh-pill">مديونية {money(state.driver.debt)}</span>
+      </div>
+      <div className="kh-veh" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <button type="button" className={walletPeriod === 'day' ? 'active' : ''} onClick={() => setWalletPeriod('day')}>📅 اليوم</button>
+        <button type="button" className={walletPeriod === 'week' ? 'active' : ''} onClick={() => setWalletPeriod('week')}>🗓️ الأسبوع</button>
+        <button type="button" className={walletPeriod === 'month' ? 'active' : ''} onClick={() => setWalletPeriod('month')}>📆 الشهر</button>
       </div>
       <p className="muted">{periodLabel(walletPeriod)}</p>
       <div className="wallet-hero">
@@ -3100,7 +3188,7 @@ export default function App() {
       <div className="progress"><div className="progress-fill" style={{ width: `${Math.min(100, (state.driver.debt / MAX_DEBT_EGP) * 100)}%` }} /></div>
       <p>رصيدك في المحفظة: <b style={{ color: 'var(--green)' }}>{money(state.driver.balance ?? 0)}</b> — لو حوّلت أكتر من مديونيتك الزيادة بتتحفظ هنا، وعمولات الرحلات الجاية (5%) بتتخصم من الرصيد ده الأول قبل ما تتسجل مديونية.</p>
       {isDebtBlocked(state.driver.debt) && <p className="warn">⛔ وصلت للحد الأقصى — مش هتستقبل رحلات جديدة لحد ما تسدد.</p>}
-      <h3><span className="icon-chip sm"><IconSwap /></span>حوّل للإدارة</h3>
+      <div className="kh-sec-head"><h3>حوّل للإدارة</h3></div>
       <p>محفظة الإدارة: <b>{state.admin.walletNumber || '— لم يحددها الأدمن بعد —'}</b> ({state.admin.walletName || ''})</p>
       <input placeholder="المبلغ المحوّل (جنيه)" inputMode="numeric" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
       {state.driver.debt > 0 && (
@@ -3111,7 +3199,7 @@ export default function App() {
       <PhotoPicker onPick={setPayShot} label="اختار صورة التحويل" />
       <p>صورة التحويل بتتضغط تلقائياً قبل الإرسال (الحد حوالي 250 كيلوبايت).</p>
       <button className="btn" disabled={payBusy} onClick={submitPayment}>{payBusy ? 'بيتبعت…' : 'ابعت طلب التحويل + صورة التحويل'}</button>
-      <h3><span className="icon-chip sm"><IconHistory /></span>رحلات الفترة ({walletMyRides.length})</h3>
+      <div className="kh-sec-head"><h3>رحلات الفترة ({walletMyRides.length})</h3></div>
       <div className="row">
         <button className={walletFilter === 'all' ? 'btn small' : 'btn small soft'} onClick={() => setWalletFilter('all')}>الكل ({walletMyRides.length})</button>
         <button className={walletFilter === 'completed' ? 'btn small' : 'btn small soft'} onClick={() => setWalletFilter('completed')}>مكتملة ({walletCompleted.length})</button>
@@ -3119,18 +3207,28 @@ export default function App() {
       </div>
       {walletShown.length === 0 && <p className="muted">مفيش رحلات في الفترة دي.</p>}
       {walletShown.map((r) => (
-        <div key={r.orderNo} className="ride">
-          <b>{r.orderNo}</b> — {fmtDate(walletRideTime(r))} {fmtTime(walletRideTime(r))} — {r.status === 'completed' ? <span className="badge green">مكتملة ✅</span> : <span className="badge red">ملغاة ❌</span>}
-          <br />من: {r.pickup.label} — إلى: {r.destination.label}
-          <br />{r.status === 'completed'
-            ? <>الأجرة: <b>{money(r.fare)}</b> — العمولة: {money(commissionFor(r.fare, state.admin.rideCommissionRate))}</>
-            : <>الأجرة: <b>0 ج.م</b> — {r.cancelledBy === 'passenger' ? 'العميل' : 'أنت'} لغيتها{r.cancelReason ? ` — السبب: ${r.cancelReason}` : ''}</>}
+        <div key={r.orderNo} className="kh-order-card">
+          <span className={`kh-ord-ic${r.status === 'completed' ? ' green' : ' red'}`}>{r.status === 'completed' ? '✅' : '❌'}</span>
+          <div className="kh-ord-info">
+            <div className="kh-ord-top"><b>{r.orderNo}</b><span className="kh-ord-price">{r.status === 'completed' ? money(r.fare) : '0 ج.م'}</span></div>
+            <span className={`kh-status${r.status === 'completed' ? ' green' : ' red'}`}>{r.status === 'completed' ? 'مكتملة ✅' : 'ملغاة ❌'}</span>
+            <div className="muted">{fmtDate(walletRideTime(r))} {fmtTime(walletRideTime(r))}</div>
+            <div className="muted">من: {r.pickup.label} — إلى: {r.destination.label}</div>
+            {r.status === 'completed'
+              ? <div className="muted">العمولة: {money(commissionFor(r.fare, state.admin.rideCommissionRate))}</div>
+              : <div className="muted">{r.cancelledBy === 'passenger' ? 'العميل' : 'أنت'} لغيتها{r.cancelReason ? ` — السبب: ${r.cancelReason}` : ''}</div>}
+          </div>
         </div>
       ))}
-      <h3><span className="icon-chip sm"><IconList /></span>طلباتي</h3>
+      <div className="kh-sec-head"><h3>طلباتي</h3></div>
       {state.payments.filter((p) => p.driverCode === state.driver.code).map((p) => (
-        <div key={p.id} className="ride">{p.id} — {money(p.amount)} — {p.status === 'pending' ? 'بانتظار الإدارة' : p.status === 'approved' ? '✅ اتوافق عليه' : '❌ اترفض'}
-          {p.screenshotUrl && <img src={p.screenshotUrl} alt="صورة التحويل — اضغط للتكبير" className="shot" onClick={() => setLightbox(p.screenshotUrl)} />}
+        <div key={p.id} className="kh-order-card">
+          <span className="kh-ord-ic">💸</span>
+          <div className="kh-ord-info">
+            <div className="kh-ord-top"><b>{p.id}</b><span className="kh-ord-price">{money(p.amount)}</span></div>
+            <span className="kh-status">{paymentStatusLabel(p.status)}</span>
+            {p.screenshotUrl && <img src={p.screenshotUrl} alt="صورة التحويل — اضغط للتكبير" className="shot" onClick={() => setLightbox(p.screenshotUrl)} />}
+          </div>
         </div>
       ))}
     </div>
@@ -3167,8 +3265,6 @@ export default function App() {
       driver: s.driver.code === code ? { ...s.driver, idCardStatus: status } : s.driver,
     }))
   }
-  const idCardStatusLabel = (s: string) => (s === 'approved' ? 'معتمدة ✅' : s === 'rejected' ? 'مرفوضة ❌' : s === 'pending' ? 'مستنية المراجعة ⏳' : 'مفيش بطاقة')
-
   // (v2) إحصائيات الأدمن — من الـ state الموجود، من غير تغيير سكيما
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
@@ -3186,7 +3282,7 @@ export default function App() {
   const adminActivity = [
     ...state.rides.map((r) => ({ at: r.createdAt, text: `مشوار ${r.orderNo} — ${r.pickup.label} → ${r.destination.label} — ${money(r.fare)}` })),
     ...state.restaurantOrders.map((o) => ({ at: o.createdAt, text: `طلب مطعم من ${o.restaurantName} — ${money(o.foodTotal + o.deliveryFee)} — ${RESTAURANT_ORDER_LABELS[o.status]}` })),
-    ...state.payments.map((p) => ({ at: p.createdAt, text: `تحويل من ${p.driverName} — ${money(p.amount)} — ${p.status}` })),
+    ...state.payments.map((p) => ({ at: p.createdAt, text: `تحويل من ${p.driverName} — ${money(p.amount)} — ${paymentStatusLabel(p.status)}` })),
     ...state.drivers.map((d) => ({ at: d.createdAt || 0, text: `سواق جديد سجّل: ${d.name} (${d.code})` })),
   ]
     .filter((e) => e.at > 0)
@@ -3279,10 +3375,17 @@ export default function App() {
   }
 
   // شات الدعم (v50) — محادثة واحدة برقمك، والرد من الدعم بيوصلك لحظياً
+  // الدعم (v10: شريط كحلي + فقاعات بنفس ألوان التطبيق — صياغة خاصة بالتطبيق ده)
   const supportView = (
-    <div className="card">
-      <h2><span className="icon-chip"><IconChat /></span>الدعم 💬</h2>
-      <p className="muted">اكتب سؤالك أو مشكلتك وهنرد عليك في أقرب وقت — الرد بيوصلك هنا على طول.</p>
+    <div className={appRole === 'driver' ? 'card kh-dark' : 'card'}>
+      <div className="kh-card-head">
+        <div>
+          <span className="lbl">فريق دليفري كفر حكيم معاك في أي وقت</span>
+          <b>الدعم 💬</b>
+        </div>
+        <span className="kh-pill">متصل</span>
+      </div>
+      <p className="muted">عندك سؤال أو مشكلة؟ ابعتها وهنرد عليك بسرعة — الرد هيوصلك هنا على طول.</p>
       <div className="chat-list" ref={supportListRef}>
         {(!mySupportChat || mySupportChat.messages.length === 0) && (
           <p className="muted">لسه مفيش رسايل — ابعت أول رسالة تحت 👇</p>
@@ -3303,7 +3406,7 @@ export default function App() {
           onKeyDown={(e) => { if (e.key === 'Enter') void sendMySupportMessage() }}
           style={{ flex: 1 }}
         />
-        <button className="btn" disabled={!supportDraft.trim() || supportBusy} onClick={() => void sendMySupportMessage()}>
+        <button className="btn amber" disabled={!supportDraft.trim() || supportBusy} onClick={() => void sendMySupportMessage()}>
           {supportBusy ? 'بيتبعت…' : 'ابعت 📩'}
         </button>
       </div>
@@ -3513,7 +3616,7 @@ export default function App() {
       {state.payments.length === 0 && <p>مفيش طلبات تحويل دلوقتي.</p>}
       {state.payments.map((p) => (
         <div key={p.id} className="ride">
-          {p.driverName} ({p.driverCode}) — {money(p.amount)} — {p.status}
+          {p.driverName} ({p.driverCode}) — {money(p.amount)} — {paymentStatusLabel(p.status)}
           {p.screenshotUrl && <img src={p.screenshotUrl} alt="صورة التحويل — اضغط للتكبير" className="shot" onClick={() => setLightbox(p.screenshotUrl)} />}
           {p.status === 'pending' && (
             <div className="row">
@@ -3616,7 +3719,7 @@ export default function App() {
               onKeyDown={(e) => { if (e.key === 'Enter') void sendAdminSupportReply() }}
               style={{ flex: 1 }}
             />
-            <button className="btn" disabled={!adminSupportDraft.trim() || adminSupportBusy} onClick={() => void sendAdminSupportReply()}>
+            <button className="btn amber" disabled={!adminSupportDraft.trim() || adminSupportBusy} onClick={() => void sendAdminSupportReply()}>
               {adminSupportBusy ? 'بيتبعت…' : 'ابعت الرد 📩'}
             </button>
           </div>
@@ -3626,7 +3729,7 @@ export default function App() {
       <input placeholder="🔍 ابحث برقم الطلب أو الكود أو الاسم أو الرقم…" value={search} onChange={(e) => setSearch(e.target.value)} />
       {filteredRides.map((r) => (
         <div key={r.orderNo} className="ride">
-          <b>{r.orderNo}</b> — {r.passengerName} ({r.passengerCode}) — {r.passengerPhone} — السواق: {r.driverName || '—'} ({r.driverCode || '—'}) — {money(r.fare)} — {r.status}
+          <b>{r.orderNo}</b> — {r.passengerName} ({r.passengerCode}) — {r.passengerPhone} — السواق: {r.driverName || '—'} ({r.driverCode || '—'}) — {money(r.fare)} — {rideStatusLabel(r.status)}
           <br />من: {r.pickup.label} → إلى: {r.destination.label}
           <br />تقييم الراكب للكابتن: {r.passengerRatingForDriver ?? '—'} — تقييم الكابتن للراكب: {r.driverRatingForPassenger ?? '—'}
         </div>
@@ -3910,30 +4013,7 @@ export default function App() {
 
   return (
     <div className="app" dir="rtl">
-      {['support', 'profile', 'myRequests'].includes(role) && (
-        <header className="header">
-          <img src={logoUrl} alt="دليفري كفر حكيم" className="logo" />
-          <h1><span className="brand">دليفري كفر حكيم</span></h1>
-        </header>
-      )}
-      {appRole === 'passenger' && role !== 'passenger' && (
-        <nav className="tabs">
-          <button className="tab" onClick={() => setRole('passenger')}><IconPin />اطلب</button>
-          <button className={role === 'myRequests' ? 'tab active' : 'tab'} onClick={() => setRole('myRequests')}><IconList />طلباتي</button>
-          {myRestaurants.length > 0 && <button className={role === 'restaurant' ? 'tab active' : 'tab'} onClick={() => setRole('restaurant')}>🍽️ مطعمي</button>}
-          <button className={role === 'support' ? 'tab active' : 'tab'} onClick={() => setRole('support')}><IconChat />الدعم{hasSupportReply ? ' 🔴' : ''}</button>
-          <button className={role === 'profile' ? 'tab active' : 'tab'} onClick={() => setRole('profile')}><IconUser />الملف الشخصي</button>
-        </nav>
-      )}
-      {appRole === 'driver' && (
-        <nav className="tabs">
-          <button className={role === 'driver' ? 'tab active' : 'tab'} onClick={() => setRole('driver')}><IconList />الطلبات</button>
-          <button className={role === 'trips' ? 'tab active' : 'tab'} onClick={() => setRole('trips')}><IconHistory />رحلاتي</button>
-          <button className={role === 'wallet' ? 'tab active' : 'tab'} onClick={() => setRole('wallet')}><IconWallet />المحفظة</button>
-          <button className={role === 'support' ? 'tab active' : 'tab'} onClick={() => setRole('support')}><IconChat />الدعم{hasSupportReply ? ' 🔴' : ''}</button>
-          <button className={role === 'profile' ? 'tab active' : 'tab'} onClick={() => setRole('profile')}><IconUser />الملف الشخصي</button>
-        </nav>
-      )}
+      {appRole === 'passenger' && role !== 'passenger' && passengerHeader}
       {noticeModal}
       {menuModal}
       {cartDrawer}
@@ -3953,8 +4033,10 @@ export default function App() {
       {role === 'support' && supportView}
       {role === 'admin' && isAdmin && (<><button className="btn small" onClick={() => setRole('driver')}><IconBack /> رجوع للسواق</button>{adminView}</>)}
       {role === 'admin' && !isAdmin && driverView}
+      {appRole === 'passenger' && role !== 'passenger' && passengerBottomNav}
+      {appRole === 'driver' && driverBottomNav}
       <footer className="footer">
-        <p>آخر رحلة: {lastRide ? `${lastRide.orderNo} — ${lastRide.status}` : 'لسه مفيش رحلات'}</p>
+        <p>آخر رحلة: {lastRide ? `${lastRide.orderNo} — ${rideStatusLabel(lastRide.status)}` : 'لسه مفيش رحلات'}</p>
         {appRole === 'passenger' && <button className="btn small" onClick={() => chooseRole('driver')}><IconDriver /> أنا كابتن — دخول السواقين</button>}
         {appRole === 'driver' && (
           <div className="footer-links">
