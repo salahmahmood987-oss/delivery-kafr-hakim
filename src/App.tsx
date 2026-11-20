@@ -8,7 +8,7 @@ import type { MapMode } from './MapView'
 import { IconBack, IconBell, IconChat, IconCheck, IconDriver, IconEdit, IconHistory, IconList, IconMic, IconMicOff, IconNav, IconPhone, IconPhoneOff, IconPin, IconSettings, IconShield, IconSwap, IconTrash, IconUser, IconVolume, IconWallet } from './icons'
 import logoUrl from './assets/icon-1024.png'
 import { APP_VERSION, VERSION_URL } from './version'
-import { approvePaymentTx, applyCommissionTx, applyRatingTx, createRestaurantOrder, deleteDocById, firebaseEnabled, loadAdminSettings, loadDoc, loadLaunch, nextOrderNumber, saveAdminSettings, saveMenuItem, saveRestaurant, sendSupportMessage, subscribeCall, subscribeDrivers, subscribeLaunchWaitlist, subscribeMenuItems, subscribePassengers, subscribePayments, subscribeRestaurantOrders, subscribeRestaurants, subscribeRides, subscribeSupportChat, subscribeSupportChats, subscribeWaitlist, updateCallDoc, updateRestaurantOrder, uploadImageAsDataUrl, saveDoc } from './firebaseDb'
+import { approvePaymentTx, applyCommissionTx, applyRatingTx, createRestaurantOrder, deleteDocById, firebaseEnabled, loadAdminSettings, loadDoc, loadLaunch, nextOrderNumber, saveAdminSettings, saveMenuItem, saveRestaurant, sendSupportMessage, setFirestoreErrorHandler, subscribeCall, subscribeDrivers, subscribeLaunchWaitlist, subscribeMenuItems, subscribePassengers, subscribePayments, subscribeRestaurantOrders, subscribeRestaurants, subscribeRides, subscribeSupportChat, subscribeSupportChats, subscribeWaitlist, updateCallDoc, updateRestaurantOrder, uploadImageAsDataUrl, saveDoc } from './firebaseDb'
 import { VoiceCall } from './voiceCall'
 import type { VoiceCallEvent } from './voiceCall'
 import { getFirebaseAuth } from './firebaseApp'
@@ -545,6 +545,9 @@ export default function App() {
   callUiRef.current = callUi
   // عشان الرنين يشتغل مرة واحدة بس لكل مكالمة واردة (مش مع كل تحديث للمستند)
   const incomingCallRef = useRef<RideCall | null>(null)
+  // (v7) ختم آخر مرة ظهر فيها كل تنبيه خطأ من Firestore — نفس الرسالة
+  // مرة واحدة بس كل 60 ثانية عشان إعادة المحاولة التلقائية متملاش الشاشة
+  const firestoreErrLastShownRef = useRef<Record<string, number>>({})
   const stateRef = useRef(state)
   stateRef.current = state
 
@@ -807,6 +810,20 @@ export default function App() {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firebaseEnabled, isAdmin])
+  // (v7) أخطاء Firestore كانت بتتفشل بصمت — بنوصلها للمستخدم كتنبيه
+  // بدل ما يفضل فاكر إن الحفظ نجح. نفس الرسالة مرة واحدة بس كل دقيقة
+  // عشان إعادة المحاولة التلقائية للاشتراكات متملاش الشاشة تنبيهات.
+  useEffect(() => {
+    setFirestoreErrorHandler((msg) => {
+      const now = Date.now()
+      const last = firestoreErrLastShownRef.current[msg] ?? 0
+      if (now - last < 60000) return
+      firestoreErrLastShownRef.current[msg] = now
+      showNotice(`⚠️ خطأ في الاتصال بالسيرفر: ${msg} — جرّب تاني`)
+    })
+    return () => setFirestoreErrorHandler(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // (v50) مزامنة حية لمحادثة الدعم بتاعتي — الرد من الدعم أو الأدمن
   // يوصل فوراً لشاشة الشات، من غير تحديث يدوي. العميل/الكابتن بيشوف
   // محادثته هو بس (الاشتراك على مستند رقمه بس).
@@ -3175,13 +3192,26 @@ export default function App() {
     state.supportChats.filter((c) => c.needsAdmin).length
 
   /** الأدمن يقلب مفتاح الإطلاق (v44) — يشتغل فوراً من غير تحديث للتطبيق:
-   *  الركاب بيقروا العلم من السيرفر في كل مرة قبل إنشاء الطلب. */
+   *  الركاب بيقروا العلم من السيرفر في كل مرة قبل إنشاء الطلب.
+   *  (v7) بنتأكد من السيرفر بعد الحفظ: لو الحفظ فشل (مثلاً قواعد
+   *  Firestore مقفولة) الحالة المحلية كانت بتتقلب كأن التشغيل نجح،
+   *  فبنقرا القيمة المتحقق منها من السيرفر وبنعرضها هي بس. */
   async function toggleLaunch() {
     const next = !launch.launched
     setLaunchBusy(true)
     await saveDoc('settings', 'launch', { launched: next, driversTarget: launch.driversTarget })
-    setLaunch({ launched: next, driversTarget: launch.driversTarget })
+    const verified = await loadLaunch()
     setLaunchBusy(false)
+    if (verified.launched !== next) {
+      setLaunch(verified)
+      showNotice(
+        next
+          ? 'التشغيل ما اتحفظش على السيرفر — قواعد Firestore مقفولة، افتحها من الكونسول وبعدها شغّل الخدمة تاني'
+          : 'الإيقاف ما اتحفظش على السيرفر — قواعد Firestore مقفولة، افتحها من الكونسول وبعدها وقّف الخدمة تاني',
+      )
+      return
+    }
+    setLaunch(verified)
     showNotice(next ? 'الخدمة اشتغلت للركاب ✅ — الطلبات مفتوحة دلوقتي.' : 'وقّفنا الطلبات مؤقتاً — الركاب هيشوفوا رسالة الانتظار.')
   }
 
