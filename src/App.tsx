@@ -39,7 +39,7 @@ import {
   VEHICLE_LABELS,
   vehicleCanServe,
 } from './types'
-import type { AdminSettings, DriverProfile, LatLng, LaunchSettings, MenuItem, Offer, PaymentRequest, Restaurant, RestaurantCategory, RestaurantOrder, Ride, RideCall, Role, ServiceKind, SupportChat } from './types'
+import type { AdminSettings, DriverProfile, LatLng, LaunchSettings, MenuItem, Offer, PaymentRequest, Restaurant, RestaurantCategory, RestaurantOrder, Ride, RideCall, Role, ServiceKind, SupportChat, VehicleType } from './types'
 
 function stars(value: number, onRate?: (n: number) => void) {
   return (
@@ -491,6 +491,11 @@ export default function App() {
   }
   // نموذج بيانات الكابتن: ظاهر أول مرة لحد ما يملا بياناته ويدوس حفظ
   const [driverFormOpen, setDriverFormOpen] = useState(() => !state.driver.name.trim() || !state.driver.phone.trim())
+  /** (v14) اختيار نوع المركبة يظهر مرة واحدة بس عند تسجيل كابتن جديد —
+   *  بعد كده النوع ثابت من التطبيق، والتغيير عند الأدمن بس (من لوحة
+   *  الإدارة). بيتظبط عند تأكيد الـ OTP: كابتن جديد = true، كابتن
+   *  مسجل قبل كده = false. */
+  const [vehiclePickable, setVehiclePickable] = useState(false)
   const [pickup, setPickup] = useState<LatLng | null>(null)
   const [destination, setDestination] = useState<LatLng | null>(null)
   const [pickupLabel, setPickupLabel] = useState('')
@@ -1209,6 +1214,9 @@ export default function App() {
           balance: (doc.balance as number) ?? cur.balance ?? 0,
           name: cur.name || (doc.name as string) || cur.name,
           photoUrl: cur.photoUrl ?? (doc.photoUrl as string | null) ?? null,
+          // (v14) نوع المركبة من السيرفر بس لو الملف المحلي لسه فاضي
+          // (جهاز جديد) — ملف محلي موجود هو الصح.
+          vehicleType: cur.name ? cur.vehicleType : ((doc.vehicleType as VehicleType) ?? cur.vehicleType),
         },
       })
     })
@@ -1850,6 +1858,8 @@ export default function App() {
         }
       }
       const src = ownDoc ?? migrated
+      // (v14) كابتن جديد لسه مسجلش = يقدر يختار مركبته مرة واحدة في الملف الشخصي.
+      setVehiclePickable(!src)
       const base = state.driver
       const driver: DriverProfile = {
         ...defaultDriver(),
@@ -1867,6 +1877,9 @@ export default function App() {
         name: base.name || (src?.name as string) || '',
         phone,
         code,
+        // (v14) نوع المركبة: ملف محلي موجود (نفس الجهاز) هو الصح؛
+        // جهاز جديد (ملف محلي فاضي) ياخد النوع المحفوظ على السيرفر.
+        vehicleType: base.name ? (base.vehicleType ?? 'tuk-tuk') : ((src?.vehicleType as VehicleType) ?? base.vehicleType ?? 'tuk-tuk'),
         plate: base.plate || (src?.plate as string) || '',
         color: base.color || (src?.color as string) || '',
         model: base.model || (src?.model as string) || '',
@@ -2050,8 +2063,8 @@ export default function App() {
     ? { lat: state.driver.currentLat, lng: state.driver.currentLng }
     : null
   const availableRides = state.rides
-    // الكابتن يشوف بس الطلبات اللي مركبته تقدر تخدمها: التوكتوك مشاوير
-    // ركاب بس، والموتوسيكل مشاوير ركاب + دليفري + توصيل طلبات مطاعم
+    // (v14) الكابتن يشوف بس الطلبات اللي مركبته تقدر تخدمها: التوكتوك
+    // والموتوسيكل الاتنين بيقبلوا مشاوير ركابهم + دليفري + توصيل طلبات مطاعم
     .filter((r) => r.status === 'searching' && vehicleCanServe(state.driver.vehicleType || 'tuk-tuk', r.serviceKind || 'ride_tuktuk'))
     .sort((a, b) => {
       if (!driverPos) return 0
@@ -2141,9 +2154,10 @@ export default function App() {
         </span>
       </button>
       <button className="btn small" onClick={ring}><IconBell /> جرّب صوت التنبيه</button>
+      {/* (v14) مركبة الكابتن ثابتة من التسجيل — مفيش تبديل بين توكتوك
+          وموتوسيكل هنا: كل كابتن بيشوف نوع مركبته هو بس. */}
       <div className="kh-veh" style={{ marginTop: 10 }}>
-        <button type="button" className={state.driver.vehicleType === 'tuk-tuk' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'tuk-tuk' } })}>🛺 توكتوك</button>
-        <button type="button" className={state.driver.vehicleType === 'motorcycle' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'motorcycle' } })}>🏍️ موتوسيكل</button>
+        <span className="kh-veh-only">مركبتك: {VEHICLE_LABELS[state.driver.vehicleType || 'tuk-tuk']} — مشاوير ركاب + دليفري + مطاعم</span>
       </div>
       <div className="kh-drv-earn">
         <div>
@@ -2162,7 +2176,9 @@ export default function App() {
       {isDebtBlocked(state.driver.debt) && (
         <p className="warn">⛔ وصلت لحد المديونية ({money(MAX_DEBT_EGP)}) — مش هتستقبل رحلات جديدة لحد ما تسدد.</p>
       )}
-      {state.driver.vehicleType === 'motorcycle' && (
+      {/* (v14) طلبات المطاعم الجاهزة لكل الكباتن — التوكتوك بقى يوصّل
+          زي الموتوسيكل، بنفس زرار «اتجه للمطعم» (v12) والأجرة الثابتة (v13). */}
+      {(
         <div>
           <div className="kh-sec-head"><h3>🍽️ طلبات مطاعم جاهزة للتوصيل</h3></div>
           {state.restaurantOrders.filter((o) => o.status === 'ready' && !o.driverCode).length === 0 && state.restaurantOrders.filter((o) => o.status === 'picked_up' && o.driverCode === state.driver.code).length === 0 && <p className="muted">مفيش طلبات مطاعم جاهزة دلوقتي.</p>}
@@ -2171,7 +2187,7 @@ export default function App() {
               <b>{o.id}</b> — {o.restaurantName} → {o.address} — أجرة التوصيل: <b>{money(o.deliveryFee)}</b> (كاش من العميل 💵)
               <br />{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')}
               {driverRestaurantLoc(o)}
-              <br /><button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'picked_up', driverCode: state.driver.code, driverName: state.driver.name || 'الكابتن', driverPhone: state.driver.phone })}>هوصّل الطلب ده 🏍️</button>
+              <br /><button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'picked_up', driverCode: state.driver.code, driverName: state.driver.name || 'الكابتن', driverPhone: state.driver.phone })}>هوصّل الطلب ده {state.driver.vehicleType === 'tuk-tuk' ? '🛺' : '🏍️'}</button>
             </div>
           ))}
           {state.restaurantOrders.filter((o) => o.status === 'picked_up' && o.driverCode === state.driver.code).map((o) => (
@@ -2396,11 +2412,22 @@ export default function App() {
             <input placeholder="الموديل" value={state.driver.model} onChange={(e) => update({ driver: { ...state.driver, model: e.target.value } })} />
           </div>
           <div className="kh-sec-head"><h3>نوع مركبتك</h3></div>
-          <p className="muted">التوكتوك بيستقبل مشاوير ركاب بس — الموتوسيكل بيستقبل مشاوير ركاب + دليفري + توصيل طلبات مطاعم.</p>
-          <div className="kh-veh">
-            <button type="button" className={state.driver.vehicleType === 'tuk-tuk' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'tuk-tuk' } })}>🛺 توكتوك — مشاوير ركاب</button>
-            <button type="button" className={state.driver.vehicleType === 'motorcycle' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'motorcycle' } })}>🏍️ موتوسيكل — ركاب + دليفري + مطاعم</button>
-          </div>
+          {vehiclePickable ? (
+            <>
+              <p className="muted">اختار مركبتك مرة واحدة عند التسجيل — التوكتوك والموتوسيكل الاتنين بيستقبلوا مشاوير ركاب + دليفري + توصيل طلبات مطاعم.</p>
+              <div className="kh-veh">
+                <button type="button" className={state.driver.vehicleType === 'tuk-tuk' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'tuk-tuk' } })}>🛺 توكتوك</button>
+                <button type="button" className={state.driver.vehicleType === 'motorcycle' ? 'active' : ''} onClick={() => update({ driver: { ...state.driver, vehicleType: 'motorcycle' } })}>🏍️ موتوسيكل</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="muted">مركبتك المسجلة — مينفعش تغيّر نوعها من هنا، لو غيّرت مركبتك كلّم الأدمن.</p>
+              <div className="kh-veh">
+                <span className="kh-veh-only">{VEHICLE_LABELS[state.driver.vehicleType || 'tuk-tuk']} — مشاوير ركاب + دليفري + مطاعم</span>
+              </div>
+            </>
+          )}
           <p>كود السواق: <b>{state.driver.code}</b> — التقييم: {state.driver.ratingAvg} ★ ({state.driver.ratingCount})</p>
           <div className="kh-sec-head"><h3>صورة البطاقة الشخصية</h3></div>
           <p>الصورة بتتضغط تلقائياً قبل الرفع (الحد حوالي 250 كيلوبايت) وتتحفظ في حسابك.</p>
@@ -2416,13 +2443,13 @@ export default function App() {
           {state.driver.photoUrl && <img src={state.driver.photoUrl} alt="صورتي الشخصية" className="avatar avatar-lg" />}
           <PhotoPicker onPick={setProfilePhotoFile} label="اختار صورتي" />
           <button className="btn" onClick={() => uploadProfilePhoto('driver')} disabled={!profilePhotoFile}>حفظ صورتي</button>
-          <button className="btn" onClick={() => setDriverFormOpen(false)} disabled={!state.driver.name.trim() || !state.driver.phone.trim()}>حفظ بياناتي</button>
+          <button className="btn" onClick={() => { setDriverFormOpen(false); setVehiclePickable(false); if (driverCodeIsCurrent(state.driver)) void saveDoc('drivers', state.driver.code, { name: state.driver.name.trim(), plate: state.driver.plate, color: state.driver.color, model: state.driver.model, vehicleType: state.driver.vehicleType }) }} disabled={!state.driver.name.trim() || !state.driver.phone.trim()}>حفظ بياناتي</button>
         </>
       ) : (
         <div className="saved-bar">
           {avatar(state.driver.photoUrl, state.driver.name)} {state.driver.name} — {state.driver.phone} — {VEHICLE_LABELS[state.driver.vehicleType || 'tuk-tuk']} — كودك: <b>{state.driver.code}</b>
           {state.driver.idCardUrl && <span> — البطاقة: {idCardStatusLabel(state.driver.idCardStatus)}</span>}
-          <button className="btn small" onClick={() => setDriverFormOpen(true)}><IconEdit /> تعديل بياناتي</button>
+          <button className="btn small" onClick={() => { setVehiclePickable(false); setDriverFormOpen(true) }}><IconEdit /> تعديل بياناتي</button>
         </div>
       )}
       <p className="muted">📍 موقعك بيشارك تلقائياً وانت متاح لقبول الطلبات — لازم عشان تشوف المسافة للعميل والعملاء يشوفوك على الخريطة، ومش هتقدر تبقى متاح والموقع مقفول.</p>
@@ -3928,10 +3955,11 @@ export default function App() {
       {adminUserTab === 'drivers' && adminDriverUsers.map((d) => (
         <div key={d.code} className="ride">
           {avatar(d.photoUrl, d.name)} <b>{d.name}</b> ({d.code}) — <a className="phone-chip" href={`tel:${d.phone}`}><IconPhone /> {d.phone}</a>
-          <br />★ {d.ratingAvg} ({d.ratingCount} تقييم) — {d.plate} {d.model} {d.color}
+          <br />★ {d.ratingAvg} ({d.ratingCount} تقييم) — {d.plate} {d.model} {d.color} — {VEHICLE_LABELS[d.vehicleType || 'tuk-tuk']}
           <br />مديونية: {money(d.debt)} — رصيد: {money(d.balance)} — إجمالي المسدد: {money(d.totalPaid)}
           <br />البطاقة: {idCardStatusLabel(d.idCardStatus)} — سجّل: {d.createdAt ? fmtTime(d.createdAt) : 'قبل v30 — التاريخ مش معروف'}
           <br /><button className="btn small" onClick={() => { if (confirm(`تصفّر التقييم والمحفظة للسواق ${d.name} (${d.code})؟ الصورة والبطاقة وبياناته هيفضلوا زي ما هم.`)) void saveDoc('drivers', d.code, { ratingAvg: 0, ratingCount: 0, debt: 0, balance: 0, totalPaid: 0 }) }}>تصفير التقييم والمحفظة</button>
+          <button className="btn small" onClick={() => { const next: VehicleType = (d.vehicleType || 'tuk-tuk') === 'tuk-tuk' ? 'motorcycle' : 'tuk-tuk'; if (confirm(`تغيّر مركبة السواق ${d.name} (${d.code}) إلى ${VEHICLE_LABELS[next]}؟`)) void saveDoc('drivers', d.code, { vehicleType: next }) }}>🔄 غيّر المركبة إلى {VEHICLE_LABELS[(d.vehicleType || 'tuk-tuk') === 'tuk-tuk' ? 'motorcycle' : 'tuk-tuk']}</button>
           {d.idCardUrl && <img src={d.idCardUrl} alt="بطاقة السواق — اضغط للتكبير" className="shot" onClick={() => setLightbox(d.idCardUrl)} />}
         </div>
       ))}

@@ -24,9 +24,11 @@ export const SERVICE_LABELS: Record<ServiceKind, string> = {
   restaurant: 'طلب مطعم 🍽️',
 }
 
-/** كابتن الموتوسيكل يقدر يقبل أنهو خدمات؟ التوكتوك مشاوير ركاب بس. */
+/** أنهو خدمات تقدر كل مركبة تقبلها؟ (v14) التوكتوك والموتوسيكل الاتنين
+ *  بيقبلوا مشاوير ركابهم + الدليفري + توصيل طلبات المطاعم — التوكتوك
+ *  بقى يوصّل طلبات زي الموتوسيكل. */
 export function vehicleCanServe(vehicle: VehicleType, service: ServiceKind): boolean {
-  if (vehicle === 'tuk-tuk') return service === 'ride_tuktuk'
+  if (vehicle === 'tuk-tuk') return service === 'ride_tuktuk' || service === 'delivery' || service === 'restaurant'
   // الموتوسيكل: مشاوير ركاب + دليفري + توصيل طلبات مطاعم
   return service === 'ride_motorcycle' || service === 'delivery' || service === 'restaurant'
 }
@@ -166,7 +168,8 @@ export const RESTAURANT_CATEGORY_LABELS: Record<RestaurantCategory, string> = {
   other: 'أخرى',
 }
 
-/** مطعم متعاقد معاه — المنيو أصنافه، والتوصيل بكباتن موتوسيكل.
+/** مطعم متعاقد معاه — المنيو أصنافه، والتوصيل بكباتن موتوسيكل أو توكتوك
+ *  (v14 — التوكتوك بقى يوصّل طلبات زي الموتوسيكل).
  *  الدفع كاش عند الاستلام في v1 — مفيش دفع أونلاين. */
 export interface Restaurant {
   id: string
@@ -220,12 +223,12 @@ export const RESTAURANT_ORDER_LABELS: Record<RestaurantOrderStatus, string> = {
   confirmed: 'المطعم أكّد الطلب',
   preparing: 'بيتجهز 👨‍🍳',
   ready: 'جاهز للتوصيل',
-  picked_up: 'الكابتن استلمه 🏍️',
+  picked_up: 'الكابتن استلمه 📦',
   delivered: 'اتوصل ✅',
   cancelled: 'ملغي',
 }
 
-/** طلب أكل من مطعم — بيتوصل بكابتن موتوسيكل، والدفع كاش عند الاستلام */
+/** طلب أكل من مطعم — بيتوصل بكابتن موتوسيكل أو توكتوك (v14)، والدفع كاش عند الاستلام */
 export interface RestaurantOrder {
   id: string
   restaurantId: string
@@ -249,7 +252,7 @@ export interface RestaurantOrder {
   /** ملاحظات العميل للمطعم */
   note: string | null
   status: RestaurantOrderStatus
-  /** كابتن الموتوسيكل اللي هيوصل الطلب */
+  /** الكابتن (موتوسيكل أو توكتوك — v14) اللي هيوصل الطلب */
   driverCode: string | null
   driverName: string | null
   driverPhone: string | null
