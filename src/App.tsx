@@ -341,6 +341,64 @@ function PhotoPicker({ onPick, label }: { onPick: (file: File) => void; label: s
   )
 }
 
+/** محرر موقع مطعم (v12) — GPS + ضغطة على الخريطة + حفظ.
+ *  مكوّن مستقل عشان إحداثي الدبوس يفضل ثابت (useMemo) بين الري-ريندرات
+ *  والخريطة متقفزش كل ما صاحب المطعم يكتب حرف في أي خانة.
+ *  restaurant = المطعم (null في نموذج الإضافة — المسودة بتتقرأ في addRestaurant). */
+function RestaurantLocationEditor(props: {
+  restaurant: Restaurant | null
+  draft: { lat: number; lng: number } | null
+  picking: boolean
+  onDraft: (loc: { lat: number; lng: number }) => void
+  onPicking: (v: boolean) => void
+  onGpsError: () => void
+  onSave?: () => void
+  onClear?: () => void
+}) {
+  const { restaurant: r, draft, picking } = props
+  const saved = r && r.lat != null && r.lng != null ? { lat: r.lat, lng: r.lng } : null
+  const shown = draft ?? saved
+  const shownLat = shown?.lat ?? null
+  const shownLng = shown?.lng ?? null
+  const shownName = r?.name ?? 'موقع المطعم'
+  const pickup = useMemo(
+    () => (shownLat != null && shownLng != null ? { lat: shownLat, lng: shownLng, label: shownName } : null),
+    [shownLat, shownLng, shownName],
+  )
+  const useGps = () => {
+    navigator.geolocation?.getCurrentPosition(
+      (pos) => props.onDraft({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => props.onGpsError(),
+      { enableHighAccuracy: true },
+    )
+  }
+  return (
+    <div>
+      {(picking || shown) && (
+        <div className="map-hero-card">
+          <MapView
+            height={200}
+            pickup={pickup}
+            destination={null}
+            driver={null}
+            pickMode={picking ? 'pickup' : 'view'}
+            onPick={(lat, lng) => { props.onDraft({ lat, lng }); props.onPicking(false) }}
+          />
+        </div>
+      )}
+      {!picking && !shown && <p className="muted">📍 موقع المطعم لسه متحددش — دوس «موقعي الحالي» أو «حدّد على الخريطة».</p>}
+      {picking && <p className="muted">دوس على الخريطة على مكان المطعم 👆</p>}
+      <div className="row">
+        <button className="btn small" onClick={useGps}><IconPin /> موقعي الحالي</button>
+        <button className={picking ? 'btn small active' : 'btn small'} onClick={() => props.onPicking(!picking)}>حدّد على الخريطة</button>
+        {r && draft && props.onSave ? <button className="btn small" onClick={props.onSave}>حفظ الموقع ✅</button> : null}
+        {r && saved && props.onClear ? <button className="btn small danger" onClick={props.onClear}>مسح الموقع</button> : null}
+      </div>
+      {shown && <p className="muted">الإحداثيات: {shown.lat.toFixed(5)}، {shown.lng.toFixed(5)}{draft ? ' (مسودة — دوس «حفظ الموقع»)' : ''}</p>}
+    </div>
+  )
+}
+
 export default function App() {
   const [state, setState] = useState<AppState>(() => loadState())
   const [role, setRole] = useState<Role>(() => {
@@ -472,6 +530,13 @@ export default function App() {
   const [newItem2Price, setNewItem2Price] = useState('')
   const [newMenuName, setNewMenuName] = useState('')
   const [newMenuPrice, setNewMenuPrice] = useState('')
+  // (v12) موقع المطعم — مسودة الإحداثيات بمفتاح id المطعم ('new' لنموذج
+  // الإضافة)، وحالة «بحدّد على الخريطة» لكل مطعم، وصور المطعم/الصنف الجديدة
+  const [locDraft, setLocDraft] = useState<Record<string, { lat: number; lng: number }>>({})
+  const [locPicking, setLocPicking] = useState<Record<string, boolean>>({})
+  const [locEditOpen, setLocEditOpen] = useState<Record<string, boolean>>({})
+  const [newRestaurantPhotoFile, setNewRestaurantPhotoFile] = useState<File | null>(null)
+  const [newMenuPhotoFile, setNewMenuPhotoFile] = useState<File | null>(null)
   const [search, setSearch] = useState('')
   // قسم المستخدمين عند الأدمن: تبويب سواقين/عملاء + فلتر جدد/قدام/الكل + بحث
   const [adminUserTab, setAdminUserTab] = useState<'drivers' | 'passengers'>('drivers')
@@ -2037,6 +2102,26 @@ export default function App() {
       commission: done.reduce((s, r) => s + commissionFor(r.fare, state.admin.rideCommissionRate), 0),
     }
   })()
+  /** مطعم طلب الأكل (v12) — للكابتن */
+  const restaurantForOrder = (o: RestaurantOrder) => state.restaurants.find((x) => x.id === o.restaurantId) ?? null
+
+  /** بلوك موقع المطعم في كروت الكابتن (v12) — عنوان + مسافة من الكابتن +
+   *  زرار «اتجه للمطعم» بيفتح اتجاهات جوجل على إحداثيات المطعم */
+  const driverRestaurantLoc = (o: RestaurantOrder) => {
+    const rest = restaurantForOrder(o)
+    if (!rest) return null
+    if (rest.lat == null || rest.lng == null) {
+      return <div className="muted">📍 {rest.address} — موقع المطعم لسه متحددش على الخريطة.</div>
+    }
+    const dist = driverPos ? distanceKm(driverPos, { lat: rest.lat, lng: rest.lng }) : null
+    return (
+      <div>
+        <div className="muted">📍 {rest.name} — {rest.address}{dist != null ? ` — على بعد ${dist} كم منك` : ''}</div>
+        <a className="btn small" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${rest.lat},${rest.lng}`}><IconNav /> 🧭 اتجه للمطعم ↗</a>
+      </div>
+    )
+  }
+
   const driverView = (
     <div className="card kh-dark">
       <div className="kh-drv-head">
@@ -2084,6 +2169,7 @@ export default function App() {
             <div key={o.id} className="ride">
               <b>{o.id}</b> — {o.restaurantName} → {o.address} — أجرة التوصيل: <b>{money(o.deliveryFee)}</b> (كاش من العميل 💵)
               <br />{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')}
+              {driverRestaurantLoc(o)}
               <br /><button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'picked_up', driverCode: state.driver.code, driverName: state.driver.name || 'الكابتن', driverPhone: state.driver.phone })}>هوصّل الطلب ده 🏍️</button>
             </div>
           ))}
@@ -2091,6 +2177,7 @@ export default function App() {
             <div key={o.id} className="ride">
               <b>{o.id}</b> — {o.restaurantName} → {o.address} — {money(o.foodTotal + o.deliveryFee)} (كاش 💵)
               <br />{o.customerName} — <a className="phone-chip" href={`tel:${o.customerPhone}`}><IconPhone /> {o.customerPhone}</a>
+              {driverRestaurantLoc(o)}
               <br /><button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'delivered' })}>تم التوصيل ✅ — استلمت الكاش</button>
             </div>
           ))}
@@ -2529,7 +2616,7 @@ export default function App() {
   /** بطاقة مطعم واحدة (v6) — بتتستخدم في الرئيسية (معاينة) وفي تبويب المطاعم */
   const restaurantRow = (r: Restaurant) => (
     <button key={r.id} type="button" className="kh-rest-card" onClick={() => { setSelectedRestaurantId(r.id); setCart({}); setMenuModalOpen(true) }}>
-      <span className="kh-rest-ic">{r.category === 'pharmacy' ? '💊' : r.category === 'grill' ? '🥩' : r.category === 'pizza' ? '🍕' : r.category === 'ful' ? '🧆' : '🍽️'}</span>
+      {r.photoUrl ? <img src={r.photoUrl} alt={r.name} className="kh-rest-thumb" /> : <span className="kh-rest-ic">{r.category === 'pharmacy' ? '💊' : r.category === 'grill' ? '🥩' : r.category === 'pizza' ? '🍕' : r.category === 'ful' ? '🧆' : '🍽️'}</span>}
       <span style={{ flex: 1, minWidth: 0 }}>
         <b>{r.name}</b>
         <span className="muted">{r.address} — {RESTAURANT_CATEGORY_LABELS[r.category]}</span>
@@ -2562,6 +2649,7 @@ export default function App() {
       <div className="kh-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="kh-sheet-head">
           <button type="button" className="kh-sheet-close" onClick={() => setMenuModalOpen(false)} aria-label="إغلاق">✕</button>
+          {selectedRestaurant.photoUrl ? <img src={selectedRestaurant.photoUrl} alt={selectedRestaurant.name} className="kh-rest-photo" /> : null}
           <h3>{selectedRestaurant.name}</h3>
           <p>{selectedRestaurant.address} — الدفع كاش عند الاستلام 💵 — التوصيل بموتوسيكل 🏍️</p>
         </div>
@@ -2569,6 +2657,7 @@ export default function App() {
           {selectedMenu.length === 0 && <p className="muted">المنيو لسه فاضي — صاحب المطعم لسه مضافش أصناف.</p>}
           {selectedMenu.map((m) => (
             <div key={m.id} className="kh-menu-item">
+              {m.photoUrl ? <img src={m.photoUrl} alt={m.name} className="kh-dish-thumb" /> : null}
               <div className="info">
                 <b>{m.name}</b>
                 {m.description ? <span className="muted">{m.description}</span> : null}
@@ -2652,6 +2741,78 @@ export default function App() {
     </div>
   ) : null
 
+  /** حفظ مسودة موقع مطعم (v12) — من محرر الموقع في «مطعمي» أو لوحة الإدارة */
+  async function saveRestaurantLoc(r: Restaurant, key: string) {
+    const draft = locDraft[key]
+    if (!draft) return
+    const updated = { ...r, lat: draft.lat, lng: draft.lng }
+    update({ restaurants: state.restaurants.map((x) => (x.id === r.id ? updated : x)) })
+    await saveRestaurant(updated)
+    setLocDraft((d) => { const n = { ...d }; delete n[key]; return n })
+    setLocPicking((p) => ({ ...p, [key]: false }))
+    showNotice(`موقع ${r.name} اتحفظ ✅ — الكابتن هيشوفه في طلبات التوصيل مع زرار الاتجاهات.`)
+  }
+
+  /** مسح موقع مطعم محفوظ (v12) */
+  async function clearRestaurantLoc(r: Restaurant, key: string) {
+    const updated = { ...r, lat: null, lng: null }
+    update({ restaurants: state.restaurants.map((x) => (x.id === r.id ? updated : x)) })
+    await saveRestaurant(updated)
+    setLocDraft((d) => { const n = { ...d }; delete n[key]; return n })
+    showNotice('موقع المطعم اتمسح.')
+  }
+
+  /** رفع صورة المطعم (v12) — Data URL مضغوطة زي باقي صور التطبيق */
+  async function uploadRestaurantPhoto(r: Restaurant, file: File) {
+    let url: string
+    try {
+      url = await uploadImageAsDataUrl(file)
+    } catch (e) {
+      showNotice(e instanceof Error ? e.message : 'مقدرناش نجهّز الصورة.')
+      return
+    }
+    const updated = { ...r, photoUrl: url }
+    update({ restaurants: state.restaurants.map((x) => (x.id === r.id ? updated : x)) })
+    await saveRestaurant(updated)
+    showNotice('صورة المطعم اتحفظت ✅')
+  }
+
+  /** رفع صورة صنف في المنيو (v12) */
+  async function uploadMenuItemPhoto(m: MenuItem, file: File) {
+    let url: string
+    try {
+      url = await uploadImageAsDataUrl(file)
+    } catch (e) {
+      showNotice(e instanceof Error ? e.message : 'مقدرناش نجهّز الصورة.')
+      return
+    }
+    const updated = { ...m, photoUrl: url }
+    update({ menuItems: state.menuItems.map((x) => (x.id === m.id ? updated : x)) })
+    await saveMenuItem(updated)
+    showNotice(`صورة «${m.name}» اتحفظت ✅`)
+  }
+
+  /** إضافة صنف للمنيو (v12) — مع صورة اختيارية من الملف المختار */
+  async function addMenuItem(r: Restaurant) {
+    if (!newMenuName.trim() || !newMenuPrice) return
+    let photoUrl: string | null = null
+    if (newMenuPhotoFile) {
+      try {
+        photoUrl = await uploadImageAsDataUrl(newMenuPhotoFile)
+      } catch (e) {
+        showNotice(e instanceof Error ? e.message : 'مقدرناش نجهّز الصورة.')
+        return
+      }
+    }
+    const item: MenuItem = { id: `M-${Date.now()}`, restaurantId: r.id, name: newMenuName.trim(), price: parseInt(newMenuPrice, 10), description: '', photoUrl, available: true }
+    update({ menuItems: [...state.menuItems, item] })
+    void saveMenuItem(item)
+    setNewMenuName('')
+    setNewMenuPrice('')
+    setNewMenuPhotoFile(null)
+    showNotice(`الصنف ${item.name} اتضاف للمنيو.`)
+  }
+
   /** واجهة صاحب المطعم — منيوه + الطلبات اللي وصلت مطعمه */
   const restaurantView = (
     <div className="card">
@@ -2670,11 +2831,29 @@ export default function App() {
           <div key={r.id}>
             <h3>{r.name} — {r.address}</h3>
             <p className="muted">عمولة التطبيق من كل طلب: {Math.round(r.commissionRate * 100)}% من سعر الأكل — الدفع كاش عند الاستلام.</p>
+            {r.photoUrl ? <img src={r.photoUrl} alt={r.name} className="kh-rest-photo" /> : null}
+            <div className="row">
+              <PhotoPicker onPick={(f) => void uploadRestaurantPhoto(r, f)} label={r.photoUrl ? '📷 تغيير صورة المطعم' : '📷 صورة المطعم'} />
+            </div>
+            <div className="kh-sec-head"><h3>📍 موقع المطعم</h3></div>
+            <p className="muted">الموقع ده اللي كابتن التوصيل هيشوفه في طلبات التوصيل مع زرار «اتجه للمطعم» — حدده وانت واقف في المطعم أو دوس على الخريطة.</p>
+            <RestaurantLocationEditor
+              restaurant={r}
+              draft={locDraft[r.id] ?? null}
+              picking={!!locPicking[r.id]}
+              onDraft={(loc) => setLocDraft((d) => ({ ...d, [r.id]: loc }))}
+              onPicking={(v) => setLocPicking((p) => ({ ...p, [r.id]: v }))}
+              onGpsError={() => showNotice('مش قادر أوصل للـ GPS — حدد النقطة على الخريطة.')}
+              onSave={() => void saveRestaurantLoc(r, r.id)}
+              onClear={() => void clearRestaurantLoc(r, r.id)}
+            />
             <div className="kh-sec-head"><h3>المنيو</h3></div>
             {myMenu.length === 0 && <p className="muted">لسه مضفتش أصناف.</p>}
             {myMenu.map((m) => (
               <div key={m.id} className="kh-menu-item">
+                {m.photoUrl ? <img src={m.photoUrl} alt={m.name} className="kh-dish-thumb" /> : null}
                 <div className="info"><b>{m.name}</b><span className="price">{money(m.price)}</span> — {m.available ? 'متاح ✅' : 'مخفي'}</div>
+                <PhotoPicker onPick={(f) => void uploadMenuItemPhoto(m, f)} label="📷 صورة" />
                 <button className="btn small" onClick={() => void saveMenuItem({ ...m, available: !m.available })}>{m.available ? 'إخفاء' : 'إظهار'}</button>
               </div>
             ))}
@@ -2682,17 +2861,14 @@ export default function App() {
               <input placeholder="اسم الصنف" value={newMenuName} onChange={(e) => setNewMenuName(e.target.value)} />
               <input placeholder="السعر (جنيه)" inputMode="numeric" value={newMenuPrice} onChange={(e) => setNewMenuPrice(e.target.value.replace(/[^0-9]/g, ''))} />
             </div>
+            <div className="row">
+              <PhotoPicker onPick={setNewMenuPhotoFile} label="📷 صورة الصنف (اختياري)" />
+              {newMenuPhotoFile ? <span className="muted">📷 {newMenuPhotoFile.name}</span> : null}
+            </div>
             <button
               className="btn"
               disabled={!newMenuName.trim() || !newMenuPrice}
-              onClick={() => {
-                const item: MenuItem = { id: `M-${Date.now()}`, restaurantId: r.id, name: newMenuName.trim(), price: parseInt(newMenuPrice, 10), description: '', photoUrl: null, available: true }
-                update({ menuItems: [...state.menuItems, item] })
-                void saveMenuItem(item)
-                setNewMenuName('')
-                setNewMenuPrice('')
-                showNotice(`الصنف ${item.name} اتضاف للمنيو.`)
-              }}
+              onClick={() => void addMenuItem(r)}
             >
               أضف صنف للمنيو
             </button>
@@ -3451,6 +3627,18 @@ export default function App() {
       showNotice('رقم تليفون صاحب المطعم مش صحيح — اكتبه زي 015xxxxxxxxx.')
       return
     }
+    // (v12) صورة المطعم + موقعه من نموذج الإضافة (اختياري — صاحبه يقدر
+    // يحددهم بعدين من «مطعمي»).
+    let photoUrl: string | null = null
+    if (newRestaurantPhotoFile) {
+      try {
+        photoUrl = await uploadImageAsDataUrl(newRestaurantPhotoFile)
+      } catch (e) {
+        showNotice(e instanceof Error ? e.message : 'مقدرناش نجهّز الصورة.')
+        return
+      }
+    }
+    const newLoc = locDraft['new'] ?? null
     const r: Restaurant = {
       id: `R-${Date.now()}`,
       name: newRestaurantName.trim(),
@@ -3458,7 +3646,9 @@ export default function App() {
       ownerPhone: ownerPhoneE164,
       description: '',
       address: newRestaurantAddress.trim() || 'كفر حكيم',
-      photoUrl: null,
+      photoUrl,
+      lat: newLoc?.lat ?? null,
+      lng: newLoc?.lng ?? null,
       approved: true,
       commissionRate: state.admin.restaurantCommissionRate,
       createdAt: Date.now(),
@@ -3483,6 +3673,9 @@ export default function App() {
     setNewItem1Price('')
     setNewItem2Name('')
     setNewItem2Price('')
+    setNewRestaurantPhotoFile(null)
+    setLocDraft((d) => { const n = { ...d }; delete n['new']; return n })
+    setLocPicking((p) => ({ ...p, new: false }))
     showNotice(`المطعم ${r.name} اتضاف واتعتمد${initialItems.length > 0 ? ` — ومعاه ${initialItems.length} صنف في المنيو` : ''} — صاحبه يقدر يدير المنيو من حسابه.`)
   }
 
@@ -3590,6 +3783,20 @@ export default function App() {
           ))}
         </select>
       </div>
+      <p className="muted">صورة المطعم (اختياري):</p>
+      <div className="row">
+        <PhotoPicker onPick={setNewRestaurantPhotoFile} label="📷 صورة المطعم" />
+        {newRestaurantPhotoFile ? <span className="muted">📷 {newRestaurantPhotoFile.name}</span> : null}
+      </div>
+      <p className="muted">موقع المطعم على الخريطة (اختياري — صاحبه يقدر يحدده بعدين من «مطعمي»):</p>
+      <RestaurantLocationEditor
+        restaurant={null}
+        draft={locDraft['new'] ?? null}
+        picking={!!locPicking['new']}
+        onDraft={(loc) => setLocDraft((d) => ({ ...d, new: loc }))}
+        onPicking={(v) => setLocPicking((p) => ({ ...p, new: v }))}
+        onGpsError={() => showNotice('مش قادر أوصل للـ GPS — حدد النقطة على الخريطة.')}
+      />
       <p className="muted">أصناف أولية (اختياري — عشان المطعم يظهر بمنيو جاهز من أول يوم):</p>
       <div className="grid">
         <input placeholder="اسم الوجبة الأولى" value={newItem1Name} onChange={(e) => setNewItem1Name(e.target.value)} />
@@ -3604,10 +3811,14 @@ export default function App() {
       {state.restaurants.length === 0 && <p>لسه مفيش مطاعم.</p>}
       {state.restaurants.map((r) => (
         <div key={r.id} className="ride">
+          {r.photoUrl ? <img src={r.photoUrl} alt={r.name} className="kh-rest-thumb" /> : null}
           <b>{r.name}</b> — {r.address} — صاحب المطعم: {r.ownerPhone} — {r.approved ? 'معتمد ✅' : 'مستني الاعتماد'}
+          <br />الموقع: {r.lat != null && r.lng != null ? 'محدد على الخريطة ✅' : 'لسه متحددش — الكابتن مش هيشوف زرار الاتجاهات'}
           <br />عمولة: {Math.round(r.commissionRate * 100)}% — طلبات: {state.restaurantOrders.filter((o) => o.restaurantId === r.id).length} — عمولات مستحقة: {money(state.restaurantOrders.filter((o) => o.restaurantId === r.id && o.status !== 'cancelled').reduce((s, o) => s + o.commission, 0))}
           <div className="row">
             <button className="btn small" onClick={() => void saveRestaurant({ ...r, approved: !r.approved })}>{r.approved ? 'إخفاء المطعم' : 'اعتماد المطعم'}</button>
+            <PhotoPicker onPick={(f) => void uploadRestaurantPhoto(r, f)} label="📷 صورة المطعم" />
+            <button className="btn small" onClick={() => setLocEditOpen((o) => ({ ...o, [r.id]: !o[r.id] }))}>📍 {locEditOpen[r.id] ? 'إخفاء الموقع' : r.lat != null && r.lng != null ? 'تعديل الموقع' : 'تحديد الموقع'}</button>
             <label>العمولة:
               <select
                 value={String(Math.round(r.commissionRate * 100))}
@@ -3624,6 +3835,18 @@ export default function App() {
               </select>
             </label>
           </div>
+          {locEditOpen[r.id] ? (
+            <RestaurantLocationEditor
+              restaurant={r}
+              draft={locDraft[r.id] ?? null}
+              picking={!!locPicking[r.id]}
+              onDraft={(loc) => setLocDraft((d) => ({ ...d, [r.id]: loc }))}
+              onPicking={(v) => setLocPicking((p) => ({ ...p, [r.id]: v }))}
+              onGpsError={() => showNotice('مش قادر أوصل للـ GPS — حدد النقطة على الخريطة.')}
+              onSave={() => void saveRestaurantLoc(r, r.id)}
+              onClear={() => void clearRestaurantLoc(r, r.id)}
+            />
+          ) : null}
         </div>
       ))}
       <h3><span className="icon-chip sm">🧾</span>طلبات المطاعم</h3>

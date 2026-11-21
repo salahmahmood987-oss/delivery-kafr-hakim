@@ -781,6 +781,8 @@ function normalizeRestaurant(id: string, data: Record<string, unknown>): Restaur
     description: d.description ?? '',
     address: d.address ?? '',
     photoUrl: d.photoUrl ?? null,
+    lat: typeof d.lat === 'number' ? d.lat : null,
+    lng: typeof d.lng === 'number' ? d.lng : null,
     approved: d.approved ?? false,
     commissionRate: d.commissionRate ?? RESTAURANT_COMMISSION_RATE,
     createdAt: d.createdAt ?? Date.now(),
