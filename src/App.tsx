@@ -636,8 +636,9 @@ export default function App() {
   // (v8) أجرة الدليفري بالمسافة: قاعدة + جنيه لكل كيلومتر — المسافة من
   // إحداثيات المحل وعنوان التوصيل (هافرساين)، والكيلومتر الجزئي يتحسب
   // كيلو كامل (3.2 كم = 4 كم). مثال: تلفزيون على مسافة 4 كم = 15 + 5×4 = 35 جنيه.
-  // القاعدة وسعر الكيلو من إعدادات الأدمن (افتراضي 15 و5) — مشاوير التوكتوك
-  // والموتوسيكل وأجرة توصيل المطاعم زي ما هي (عداد تفاوضي / ثابت).
+  // القاعدة وسعر الكيلو من إعدادات الأدمن (افتراضي 15 و5) — مشاوير
+  // التوكتوك والموتوسيكل تفضل تفاوضية (v13: أجرة توصيل المطاعم بقت
+  // بالمسافة زي الدليفري — شوف restaurantFee تحت عند selectedRestaurant).
   const deliveryBaseFee = state.admin.deliveryBaseFee ?? 15
   const deliveryPerKm = state.admin.deliveryPerKm ?? 5
   const deliveryKm = pickup && destination ? Math.ceil(distanceKm(pickup, destination)) : 0
@@ -2495,6 +2496,23 @@ export default function App() {
   const myPhoneE164 = toE164Phone(state.passenger?.phone ?? state.driver.phone ?? '') ?? null
   const myRestaurants = myPhoneE164 ? state.restaurants.filter((r) => toE164Phone(r.ownerPhone) === myPhoneE164) : []
   const selectedRestaurant = state.restaurants.find((r) => r.id === selectedRestaurantId) ?? null
+
+  // (v13) أجرة توصيل المطاعم بالمسافة — زي الدليفري بالظبط (v8): من موقع
+  // المطعم (v12: lat/lng اللي صاحبه حددهم من «مطعمي») لعنوان التوصيل
+  // (destination). الكيلومتر الجزئي يتحسب كيلو كامل (3.2 كم = 4 كم)، ونفس
+  // إعدادات الأدمن deliveryBaseFee وdeliveryPerKm. مثال: مطعم على بعد 4 كم
+  // من العميل = 15 + 5×4 = 35 جنيه. لو المطعم لسه محددش موقعه أو العنوان
+  // ملوش إحداثيات، بنرجع لأجرة التوصيل الافتراضية (fare) عشان الطلب
+  // ميتعطلش أبداً. مشاوير الركاب (توكتوك/موتوسيكل) تفضل تفاوضية زي ما هي.
+  const restaurantLoc = selectedRestaurant && selectedRestaurant.lat != null && selectedRestaurant.lng != null
+    ? { lat: selectedRestaurant.lat, lng: selectedRestaurant.lng }
+    : null
+  const restaurantFeeComputed = !!(restaurantLoc && destination)
+  const restaurantDeliveryKm = restaurantFeeComputed && restaurantLoc && destination
+    ? Math.ceil(distanceKm(restaurantLoc, destination))
+    : 0
+  const restaurantDeliveryFare = Math.max(FARE_MIN, Math.min(FARE_MAX, deliveryBaseFee + deliveryPerKm * restaurantDeliveryKm))
+  const restaurantFee = restaurantFeeComputed ? restaurantDeliveryFare : fare
   const selectedMenu = selectedRestaurant ? state.menuItems.filter((m) => m.restaurantId === selectedRestaurant.id && m.available) : []
   const cartItems = selectedMenu.filter((m) => (cart[m.id] ?? 0) > 0).map((m) => ({ ...m, qty: cart[m.id] ?? 0 }))
   const cartFoodTotal = cartItems.reduce((s, i) => s + i.price * i.qty, 0)
@@ -2585,7 +2603,7 @@ export default function App() {
       customerPhone: state.passenger.phone,
       items,
       foodTotal,
-      deliveryFee: fare,
+      deliveryFee: restaurantFee,
       commission: restaurantCommissionFor(foodTotal, selectedRestaurant.commissionRate),
       address: destination.label,
       addressLat: destination.lat,
@@ -2607,7 +2625,7 @@ export default function App() {
       // (v6) اقفل مودال المنيو ودرج السلة بعد نجاح الطلب
       setMenuModalOpen(false)
       setCartOpen(false)
-      showNotice(`طلبك من ${selectedRestaurant.name} اتبعت — الإجمالي ${money(foodTotal + fare)} (الأكل ${money(foodTotal)} + التوصيل ${money(fare)}) — الدفع كاش عند الاستلام 💵`)
+      showNotice(`طلبك من ${selectedRestaurant.name} اتبعت — الإجمالي ${money(foodTotal + restaurantFee)} (الأكل ${money(foodTotal)} + التوصيل ${money(restaurantFee)}) — الدفع كاش عند الاستلام 💵`)
     } finally {
       setOrderBusy(false)
     }
@@ -2676,7 +2694,14 @@ export default function App() {
               {cartItems.map((i) => (
                 <p key={i.id}>{i.name} × {i.qty} — {money(i.price * i.qty)}</p>
               ))}
-              <p>الأكل: <b>{money(cartFoodTotal)}</b> + التوصيل: <b>{money(fare)}</b> = الإجمالي: <b>{money(cartFoodTotal + fare)}</b></p>
+              {restaurantFeeComputed ? (
+                <p>الأكل: <b>{money(cartFoodTotal)}</b> + التوصيل: {deliveryBaseFee} + {deliveryPerKm} × {restaurantDeliveryKm} كم = <b>{money(restaurantFee)}</b> — الإجمالي: <b>{money(cartFoodTotal + restaurantFee)}</b></p>
+              ) : (
+                <p>الأكل: <b>{money(cartFoodTotal)}</b> + التوصيل: <b>{money(fare)}</b> = الإجمالي: <b>{money(cartFoodTotal + fare)}</b></p>
+              )}
+              {selectedRestaurant && (selectedRestaurant.lat == null || selectedRestaurant.lng == null) && (
+                <p className="muted">المطعم لسه محددش موقعه على الخريطة — أجرة التوصيل الافتراضية لحد ما يحدده.</p>
+              )}
               <div>
                 <label>عنوان التوصيل — حدّده على الخريطة فوق أو دوس «موقعي الحالي»</label>
                 <div className="row">
@@ -2689,7 +2714,7 @@ export default function App() {
           )}
         </div>
         <div className="kh-sheet-foot">
-          <button className="btn big" onClick={() => void placeRestaurantOrder()} disabled={orderBusy || cartItems.length === 0}>{orderBusy ? 'بيتبعت…' : <>اطلب — {money(cartFoodTotal + fare)} (كاش 💵)</>}</button>
+          <button className="btn big" onClick={() => void placeRestaurantOrder()} disabled={orderBusy || cartItems.length === 0}>{orderBusy ? 'بيتبعت…' : <>اطلب — {money(cartFoodTotal + restaurantFee)} (كاش 💵)</>}</button>
           <button className="btn big soft" onClick={() => setMenuModalOpen(false)}>إغلاق</button>
         </div>
       </div>
@@ -2731,9 +2756,10 @@ export default function App() {
           )}
         </div>
         <div className="kh-sheet-foot">
+          {restaurantFeeComputed && <p className="muted" style={{ textAlign: 'center', margin: '0 0 6px' }}>التوصيل: {deliveryBaseFee} + {deliveryPerKm} × {restaurantDeliveryKm} كم = {money(restaurantFee)}</p>}
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <span><b>الإجمالي التقديري مع التوصيل:</b></span>
-            <b style={{ fontSize: 18 }}>{money(cartFoodTotal + fare)}</b>
+            <b style={{ fontSize: 18 }}>{money(cartFoodTotal + restaurantFee)}</b>
           </div>
           <button className="btn big" onClick={() => void placeRestaurantOrder()} disabled={orderBusy || cartItems.length === 0}>{orderBusy ? 'بيتبعت…' : 'تأكيد وإرسال الطلب للمطعم والسائق 🛵'}</button>
         </div>
@@ -3736,7 +3762,7 @@ export default function App() {
           <input inputMode="numeric" value={String(Math.round(state.admin.restaurantCommissionRate * 100))} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, restaurantCommissionRate: v === '' ? 0 : parseInt(v, 10) / 100 } }) }} onBlur={saveAdminPricing} />
         </div>
         <div>
-          <label>أجرة توصيل المطاعم الافتراضية (جنيه)</label>
+          <label>أجرة توصيل المطاعم الافتراضية (جنيه) — بس لو المطعم لسه محددش موقعه</label>
           <input inputMode="numeric" value={String(state.admin.deliveryFee)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, deliveryFee: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
         </div>
         <div>
