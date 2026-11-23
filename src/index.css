@@ -121,6 +121,9 @@ label { font-weight: 700; font-size: 14px; }
 /* شريحة تليفون 3D صغيرة — لأرقام الأدمن بدل اللينك الأزرق */
 .phone-chip { display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(180deg, #f0fdf4, #dcfce7); border: 1px solid #86efac; color: #166534; border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 800; text-decoration: none; box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 -2px 0 rgba(22, 163, 74, 0.2) inset, 0 4px 10px rgba(22, 163, 74, 0.2); transition: transform 0.08s ease, box-shadow 0.08s ease; }
 .phone-chip:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 -1px 0 rgba(22, 163, 74, 0.2) inset, 0 2px 5px rgba(22, 163, 74, 0.18); }
+.call-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(180deg, #22c55e, #16a34a); color: #fff; border: 1px solid #15803d; text-decoration: none; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 -3px 0 rgba(0,0,0,.18) inset, 0 6px 14px rgba(22,163,74,.35); transition: transform 0.08s ease, box-shadow 0.08s ease; vertical-align: middle; }
+.call-icon-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 -1px 0 rgba(0,0,0,.18) inset, 0 3px 7px rgba(22,163,74,.3); }
+.call-icon-btn .ic { width: 20px; height: 20px; }
 .phone-chip .ic { width: 15px; height: 15px; }
 .map-box { border: 2px solid #fff; outline: 1px solid var(--line); margin: 10px 0; border-radius: 20px; overflow: hidden; box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 20px 40px rgba(15, 23, 42, 0.18), 0 6px 14px rgba(15, 23, 42, 0.12); }
 .footer { text-align: center; color: var(--muted); font-size: 13px; }

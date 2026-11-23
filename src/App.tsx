@@ -2126,6 +2126,23 @@ export default function App() {
     )
   }
 
+  /** بلوك عنوان العميل في كروت الكابتن (v18) — عنوان التوصيل + مسافة من الكابتن +
+   *  زرار «اتجه للعميل» بيفتح اتجاهات جوجل على إحداثيات عنوان التوصيل. الإحداثيات
+   *  متسجلة في الطلب من يوم ما اتعمل (addressLat/addressLng) بس مكنتش بتتعرض
+   *  للكابتن أصلاً — كان شايف عنوان المطعم بس. */
+  const driverCustomerLoc = (o: RestaurantOrder) => {
+    if (o.addressLat == null || o.addressLng == null) {
+      return <div className="muted">📍 عنوان العميل: {o.address} — من غير إحداثيات على الخريطة.</div>
+    }
+    const dist = driverPos ? distanceKm(driverPos, { lat: o.addressLat, lng: o.addressLng }) : null
+    return (
+      <div>
+        <div className="muted">📍 عنوان العميل: {o.address}{dist != null ? ` — على بعد ${dist} كم منك` : ''}</div>
+        <a className="btn small" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${o.addressLat},${o.addressLng}`}><IconNav /> 🧭 اتجه للعميل ↗</a>
+      </div>
+    )
+  }
+
   const driverView = (
     <div className="card kh-dark">
       <div className="kh-drv-head">
@@ -2177,14 +2194,16 @@ export default function App() {
               <b>{o.id}</b> — {o.restaurantName} → {o.address} — أجرة التوصيل: <b>{money(o.deliveryFee)}</b> (كاش من العميل 💵)
               <br />{o.items.map((i) => `${i.name} × ${i.qty}`).join('، ')}
               {driverRestaurantLoc(o)}
+              {driverCustomerLoc(o)}
               <br /><button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'picked_up', driverCode: state.driver.code, driverName: state.driver.name || 'الكابتن', driverPhone: state.driver.phone })}>هوصّل الطلب ده {state.driver.vehicleType === 'tuk-tuk' ? '🛺' : '🏍️'}</button>
             </div>
           ))}
           {state.restaurantOrders.filter((o) => o.status === 'picked_up' && o.driverCode === state.driver.code).map((o) => (
             <div key={o.id} className="ride">
               <b>{o.id}</b> — {o.restaurantName} → {o.address} — {money(o.foodTotal + o.deliveryFee)} (كاش 💵)
-              <br />{o.customerName} — <a className="phone-chip" href={`tel:${o.customerPhone}`}><IconPhone /> {o.customerPhone}</a>
+              <br />{o.customerName} — <a className="call-icon-btn" href={`tel:${o.customerPhone}`} aria-label="اتصل بالعميل"><IconPhone /></a>
               {driverRestaurantLoc(o)}
+              {driverCustomerLoc(o)}
               <br /><button className="btn" onClick={() => void updateRestaurantOrder(o.id, { status: 'delivered' })}>تم التوصيل ✅ — استلمت الكاش</button>
             </div>
           ))}
