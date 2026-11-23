@@ -14,7 +14,7 @@ export const VEHICLE_LABELS: Record<VehicleType, string> = {
   motorcycle: 'موتوسيكل 🏍️',
 }
 
-/** نوع الخدمة — الأربع خدمات في دليفري كفر حكيم */
+/** نوع الخدمة — الأربع خدمات في اطلبنا */
 export type ServiceKind = 'ride_tuktuk' | 'ride_motorcycle' | 'delivery' | 'restaurant'
 
 export const SERVICE_LABELS: Record<ServiceKind, string> = {
@@ -178,7 +178,7 @@ export interface Restaurant {
   category: RestaurantCategory
   /** رقم تليفون صاحب المطعم — هو اللي بيدير المنيو والطلبات */
   ownerPhone: string
-  /** وصف مختصر + العنوان (كفر حكيم / كرداسة / أبو رواش) */
+  /** وصف مختصر + العنوان */
   description: string
   address: string
   /** صورة المطعم (Data URL مضغوطة) — اختياري */
@@ -259,7 +259,7 @@ export interface RestaurantOrder {
   createdAt: number
 }
 
-/** عميل من برّه النطاق (كفر حكيم/كرداسة/أبو رواش) ساب رقمه عشان نبلغه لما نفتح عنده */
+/** عميل ساب رقمه عشان نبلغه (قايمة انتظار قديمة) */
 export interface WaitlistEntry {
   id: string
   phone: string

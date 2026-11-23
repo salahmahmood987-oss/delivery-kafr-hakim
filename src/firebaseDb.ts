@@ -31,11 +31,11 @@
 //                           قبل كده كانت محلية بس، فالسواقين مبيعرفوش رقم التحويل)
 //    settings/launch      — (v44) launched + driversTarget: مفتاح تشغيل الخدمة للركاب
 //    launchWaitlist/{id}  — (v44) phone + name + createdAt: عملاء مستنيين الإطلاق
-//    waitlist/{id}        — عملاء برّه النطاق سابوا أرقامهم للتوسع
+//    waitlist/{id}        — أرقام قديمة سابها عملاء للتواصل
 //    supportChats/{phone} — (v50) شات دعم لكل رقم: messages[] + lastCustomerAt
 //                           + lastReplyAt + needsAdmin — المساعد (زعتر) بيرد
 //                           عليها من Firestore، والأدمن بيرد من لوحة الإدارة
-//    restaurants/{id}      — (v1 دليفري كفر حكيم) مطعم متعاقد معاه + approved + commissionRate
+//    restaurants/{id}      — مطعم متعاقد معاه + approved + commissionRate
 //    menuItems/{id}        — صنف منيو: restaurantId + name + price + available
 //    restaurantOrders/{id} — طلب أكل: items[] + foodTotal + deliveryFee + commission + status
 // ---------------------------------------------------------------------------
@@ -763,7 +763,7 @@ export async function addCallCandidate(
 }
 
 // ---------------------------------------------------------------------------
-//  المطاعم (دليفري كفر حكيم v1) — مجموعات Firestore:
+//  المطاعم — مجموعات Firestore:
 //    restaurants/{id}        — المطعم: الاسم، صاحب المطعم، العنوان، approved، commissionRate
 //    menuItems/{id}          — صنف في منيو مطعم: restaurantId + الاسم + السعر + available
 //    restaurantOrders/{id}   — طلب أكل: الأصناف + foodTotal + deliveryFee + commission

@@ -1,4 +1,4 @@
-/* تصميم 3D — دليفري كفر حكيم (v3: هوية كحلي/كهرماني مستقلة): عمق وطبقات وظلال متعددة في كل التطبيق */
+/* تصميم 3D — اطلبنا (هوية كحلي/كهرماني مستقلة): عمق وطبقات وظلال متعددة في كل التطبيق */
 :root {
   font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif;
   background: linear-gradient(180deg, #F4F6F8 0%, #EDF1F4 100%);
@@ -327,7 +327,7 @@ textarea:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px
 /* شبكة خدمات الرئيسية — 4 بلاطات ملوّنة */
 .kh-svc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .kh-svc-tile { border-radius: 20px; padding: 16px 14px; cursor: pointer; border: 1.5px solid; text-align: right; font-family: inherit; background: #fff; box-shadow: var(--shadow-3d-sm); }
-.kh-svc-tile .ic { font-size: 28px; display: block; margin-bottom: 6px; }
+.kh-svc-tile .ic { display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 50%; background: #0B2B4B; color: #fff; font-size: 26px; margin-bottom: 10px; box-shadow: 0 4px 10px rgba(11,43,75,.35), inset 0 1px 0 rgba(255,255,255,.25); }
 .kh-svc-tile b { display: block; font-size: 15px; }
 .kh-svc-tile span { font-size: 11px; color: #64748b; font-weight: 700; }
 .kh-svc-tile.amber { background: #fffbeb; border-color: #fde68a; }

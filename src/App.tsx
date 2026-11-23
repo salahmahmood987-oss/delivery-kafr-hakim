@@ -13,7 +13,6 @@ import { VoiceCall } from './voiceCall'
 import type { VoiceCallEvent } from './voiceCall'
 import { getFirebaseAuth } from './firebaseApp'
 import { where } from 'firebase/firestore'
-import { isInServiceArea, isInServiceBBox, OUT_OF_AREA_MESSAGE, OUT_OF_AREA_TITLE } from './geo'
 import { sendOtpCode, toE164Phone, verifyOtpCode } from './otp'
 import {
   ADMIN_PHONES,
@@ -187,7 +186,7 @@ async function geocodePlace(label: string): Promise<{ lat: number; lng: number }
 
 export interface PlaceSuggestion { label: string; lat: number; lng: number }
 
-/** اقتراحات عناوين أثناء الكتابة — زي جوجل ماب (بحث Nominatim المجاني، من غير مفتاح) — مقتصرة على نطاق الخدمة (كفر حكيم وكرداسة وأبو رواش) */
+/** اقتراحات عناوين أثناء الكتابة — زي جوجل ماب (بحث Nominatim المجاني، من غير مفتاح) — في كل مكان في مصر */
 async function searchPlaces(query: string, signal: AbortSignal): Promise<PlaceSuggestion[]> {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=eg&limit=5&accept-language=ar&q=${encodeURIComponent(query)}`
@@ -197,7 +196,7 @@ async function searchPlaces(query: string, signal: AbortSignal): Promise<PlaceSu
     if (!Array.isArray(data)) return []
     return data
       .map((d) => ({ label: String(d.display_name ?? ''), lat: parseFloat(d.lat), lng: parseFloat(d.lon) }))
-      .filter((s) => s.label && Number.isFinite(s.lat) && Number.isFinite(s.lng) && isInServiceBBox(s.lat, s.lng))
+      .filter((s) => s.label && Number.isFinite(s.lat) && Number.isFinite(s.lng))
   } catch {
     return []
   }
@@ -506,7 +505,7 @@ export default function App() {
   const suggAbortRef = useRef<AbortController | null>(null)
   const [pickMode, setPickMode] = useState<MapMode>('pickup')
   const [fareText, setFareText] = useState('25')
-  // دليفري كفر حكيم v1 — نوع الخدمة اللي العميل بيطلبها (الأربع خدمات)
+  // نوع الخدمة اللي العميل بيطلبها (الأربع خدمات)
   const [serviceKind, setServiceKind] = useState<ServiceKind>('ride_tuktuk')
   // (v6) تبويبات العميل على شبه الديمو: الرئيسية / مشوار / مطاعم / طلب خاص / طلباتي
   const [custTab, setCustTab] = useState<'home' | 'rides' | 'food' | 'errand' | 'orders'>('home')
@@ -548,8 +547,6 @@ export default function App() {
   const [adminUserFilter, setAdminUserFilter] = useState<'all' | 'new' | 'old'>('all')
   const [adminUserSearch, setAdminUserSearch] = useState('')
   const [notice, setNotice] = useState('')
-  // طلب من برّه نطاق الخدمة (كفر حكيم وكرداسة وأبو رواش) — المودال بتاع «لسه موصلناش هنا»
-  const [outOfArea, setOutOfArea] = useState<{ pickupLabel: string; destLabel: string } | null>(null)
   // بوابة الإطلاق (v44): الخدمة لسه ما اشتغلتش — بنجمع 100 كابتن الأول
   const [launch, setLaunch] = useState<LaunchSettings>({ launched: false, driversTarget: 100 })
   const [launchGate, setLaunchGate] = useState(false)
@@ -845,7 +842,7 @@ export default function App() {
     }, [where('online', '==', true)])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firebaseEnabled, isAdmin])
-  // مزامنة حية للمطاعم والمنيو (دليفري كفر حكيم v1) — العملاء يشوفوا
+  // مزامنة حية للمطاعم والمنيو — العملاء يشوفوا
   // المعتمدة بس، والأدمن يشوف الكل
   useEffect(() => {
     if (!firebaseEnabled) return
@@ -1333,24 +1330,6 @@ export default function App() {
     }
   }
 
-  /** عميل من برّه النطاق داس «بلّغني» — نسجل رقمه ومنطقته في قايمة الانتظار عند الأدمن */
-  function notifyMe() {
-    if (!state.passenger || !outOfArea) return
-    const entry = {
-      phone: state.passenger.phone,
-      name: state.passenger.name,
-      code: state.passenger.code,
-      pickupLabel: outOfArea.pickupLabel,
-      destLabel: outOfArea.destLabel,
-      createdAt: Date.now(),
-    }
-    // (v48) المعرّف هو رقم التليفون نفسه — قبل كده نفس الرقم كان بيتسجل
-    // مرات عديدة في القايمة (phone-Date.now).
-    void saveDoc('waitlist', state.passenger.phone, entry)
-    setOutOfArea(null)
-    showNotice('تمام! سجلنا رقمك وهنبلغك أول ما نفتح في منطقتك 👍')
-  }
-
   /** عميل داس «بلّغني لما نبدأ» في مودال الإطلاق — نسجل رقمه في قايمة انتظار الإطلاق */
   function notifyLaunch() {
     if (!state.passenger) return
@@ -1394,12 +1373,6 @@ export default function App() {
       }
       if (!from || !to) {
         showNotice(serviceKind === 'delivery' ? 'حدد مكان المحل (هتجيب منه إيه) وعنوان التوصيل الأول.' : 'حدد نقطة الركوب والوجهة الأول — اكتب اسم المكان أو حدّده على الخريطة.')
-        return
-      }
-      // النطاق: كفر حكيم وكرداسة وأبو رواش بس — نقطة الركوب والوجهة لازم الاتنين جوّه النطاق
-      const [fromOk, toOk] = await Promise.all([isInServiceArea(from.lat, from.lng), isInServiceArea(to.lat, to.lng)])
-      if (!fromOk || !toOk) {
-        setOutOfArea({ pickupLabel: from.label, destLabel: to.label })
         return
       }
       // (v48) رقم الطلب من عدّاد السيرفر — قبل كده كان عدّاد محلي يبدأ من 1000
@@ -2140,7 +2113,7 @@ export default function App() {
     <div className="card kh-dark">
       <div className="kh-drv-head">
         <div>
-          <span className="lbl">لوحة عمل سائقي كفر حكيم 🛺</span>
+          <span className="lbl">لوحة عمل السائقين 🛺</span>
           <b>الكابتن {state.driver.name || '—'} ({VEHICLE_LABELS[state.driver.vehicleType || 'tuk-tuk']})</b>
         </div>
       </div>
@@ -2511,7 +2484,7 @@ export default function App() {
       return da - db
     })
 
-  // ---- المطاعم (دليفري كفر حكيم v1) ----
+  // ---- المطاعم ----
   // المطاعم المعتمدة اللي العميل يشوفها + المطاعم اللي العميل ده صاحبها
   const approvedRestaurants = state.restaurants.filter((r) => r.approved)
   // (v2) فلترة المطاعم حسب التصنيف عند العميل
@@ -2871,7 +2844,7 @@ export default function App() {
     <div className="card">
       <div className="kh-rest-head">
         <div>
-          <span className="lbl">إدارة مطاعم كفر حكيم</span>
+          <span className="lbl">إدارة المطاعم</span>
           <b>{myRestaurants[0]?.name ?? 'مطعمك'} 🍽️</b>
         </div>
         <span className="kh-pill">استقبال الطلبات متصل</span>
@@ -3002,10 +2975,10 @@ export default function App() {
   const passengerHeader = (
     <header className="kh-topbar">
       <div className="kh-topbar-row">
-        <img src={logoUrl} alt="دليفري كفر حكيم" className="kh-topbar-logo" />
+        <img src={logoUrl} alt="اطلبنا" className="kh-topbar-logo" />
         <div className="kh-topbar-title">
-          <b>دليفري كفر حكيم</b>
-          <span>📍 {pickup && pickup.label !== 'موقعي الحالي' ? pickup.label : 'كفر حكيم — كرداسة — أبو رواش'}</span>
+          <b>اطلبنا</b>
+          <span>📍 {pickup && pickup.label !== 'موقعي الحالي' ? pickup.label : 'مشاوير • دليفري • مطاعم'}</span>
         </div>
         <div className="kh-topbar-actions">
           {myRestaurants.length > 0 && <button type="button" className="kh-icon-btn" onClick={() => setRole('restaurant')} aria-label="مطعمي">🍽️</button>}
@@ -3142,9 +3115,9 @@ export default function App() {
           {custTab === 'home' && (
             <>
               <div className="kh-hero">
-                <span className="kh-hero-tag">خدمة سريعة داخل القرية ⚡</span>
+                <span className="kh-hero-tag">خدمة سريعة في أي مكان ⚡</span>
                 <h2>عايز مشوار توكتوك أو موتوسيكل؟</h2>
-                <p>سائقي كفر حكيم جاهزون لتوصيلك فوراً وبأفضل سعر.</p>
+                <p>سائقونا جاهزون لتوصيلك فوراً وبأفضل سعر.</p>
                 <button className="btn small" onClick={() => setCustTab('rides')}>اطلب مشوارك الآن</button>
               </div>
               <div className="kh-svc-grid" style={{ marginTop: 12 }}>
@@ -3155,14 +3128,14 @@ export default function App() {
                   <span className="ic">🏍️</span><b>مشوار موتوسيكل</b><span>طيران سريع لأي مكان</span>
                 </button>
                 <button type="button" className="kh-svc-tile green" onClick={() => setCustTab('food')}>
-                  <span className="ic">🍔</span><b>مطاعم كفر حكيم</b><span>فول، مشويات، بيتزا، كبدة</span>
+                  <span className="ic">🍔</span><b>مطاعم قريبة منك</b><span>فول، مشويات، بيتزا، كبدة</span>
                 </button>
                 <button type="button" className="kh-svc-tile purple" onClick={() => { setServiceKind('delivery'); setCustTab('errand') }}>
                   <span className="ic">📦</span><b>دليفري خاص</b><span>شراء من أي صيدلية أو محل</span>
                 </button>
               </div>
               <div className="kh-sec-head">
-                <h3>مطاعم ومحلات كفر حكيم المتاحة</h3>
+                <h3>مطاعم ومحلات متاحة قريب منك</h3>
                 <button type="button" onClick={() => setCustTab('food')}>عرض الكل ←</button>
               </div>
               {approvedRestaurants.length === 0 && <p className="muted">لسه مفيش مطاعم متعاقد معاها — الأدمن بيضيف المطاعم من لوحة الإدارة.</p>}
@@ -3186,7 +3159,7 @@ export default function App() {
           </div>
           <div className="card bottom-sheet">
             <div className="sheet-handle" />
-            <h2><span className="icon-chip"><IconUser /></span>حجز مشوار فوري داخل وخارج كفر حكيم</h2>
+            <h2><span className="icon-chip"><IconUser /></span>حجز مشوار فوري لأي مكان</h2>
             <div className="kh-veh">
               <button type="button" className={serviceKind === 'ride_tuktuk' ? 'active' : ''} onClick={() => setServiceKind('ride_tuktuk')}>🛺 توكتوك (3 ركاب)</button>
               <button type="button" className={serviceKind === 'ride_motorcycle' ? 'active' : ''} onClick={() => setServiceKind('ride_motorcycle')}>🏍️ موتوسيكل (فرد)</button>
@@ -3267,7 +3240,7 @@ export default function App() {
           {custTab === 'food' && restaurantList}
           {custTab === 'errand' && (
             <div className="card kh-errand">
-              <h2><span className="icon-chip">📦</span>طلب خاص (دليفري من أي مكان بالقرية)</h2>
+              <h2><span className="icon-chip">📦</span>طلب خاص (دليفري من أي مكان)</h2>
               <p className="muted">عايز حاجة من صيدلية معينة؟ سوبرماركت، مكتبة، أو محل؟ اكتبها هنا وسائق الموتوسيكل هيجيبها لحد عندك!</p>
               <div>
                 <label>اسم المكان أو المحل:</label>
@@ -3352,7 +3325,7 @@ export default function App() {
     <div className="card">
       <div className="kh-card-head">
         <div>
-          <span className="lbl">حسابك في دليفري كفر حكيم</span>
+          <span className="lbl">حسابك في اطلبنا</span>
           <b>الملف الشخصي 👤</b>
         </div>
       </div>
@@ -3633,7 +3606,7 @@ export default function App() {
     <div className={appRole === 'driver' ? 'card kh-dark' : 'card'}>
       <div className="kh-card-head">
         <div>
-          <span className="lbl">فريق دليفري كفر حكيم معاك في أي وقت</span>
+          <span className="lbl">فريق اطلبنا معاك في أي وقت</span>
           <b>الدعم 💬</b>
         </div>
         <span className="kh-pill">متصل</span>
@@ -3698,7 +3671,7 @@ export default function App() {
       category: newRestaurantCategory,
       ownerPhone: ownerPhoneE164,
       description: '',
-      address: newRestaurantAddress.trim() || 'كفر حكيم',
+      address: newRestaurantAddress.trim(),
       photoUrl,
       lat: newLoc?.lat ?? null,
       lng: newLoc?.lng ?? null,
@@ -3736,7 +3709,7 @@ export default function App() {
     <div className="card kh-dark">
       <div className="kh-drv-head">
         <div>
-          <span className="lbl">👑 لوحة تحكم إدارة كفر حكيم</span>
+          <span className="lbl">👑 لوحة تحكم الإدارة</span>
           <b>التحكم الكامل في المطاعم والأسعار والشبكة</b>
         </div>
         <span className="kh-pill">مشرف المنظومة</span>
@@ -3824,12 +3797,12 @@ export default function App() {
       )}
       </>)}
       {adminTab === 'add-store' && (<>
-      <h3><span className="icon-chip sm">🍽️</span>إضافة مطعم أو محل جديد في كفر حكيم</h3>
+      <h3><span className="icon-chip sm">🍽️</span>إضافة مطعم أو محل جديد</h3>
       <p className="muted">بمجرد الحفظ سيظهر المحل فوراً لجميع العملاء في قائمة المطاعم! عمولة المطاعم الافتراضية {Math.round(state.admin.restaurantCommissionRate * 100)}% من سعر الأكل — بتتغير لكل مطعم.</p>
       <div className="grid">
         <input placeholder="اسم المطعم" value={newRestaurantName} onChange={(e) => setNewRestaurantName(e.target.value)} />
         <input placeholder="رقم تليفون صاحب المطعم" value={newRestaurantPhone} onChange={(e) => setNewRestaurantPhone(e.target.value)} />
-        <input placeholder="العنوان (كفر حكيم / كرداسة / أبو رواش)" value={newRestaurantAddress} onChange={(e) => setNewRestaurantAddress(e.target.value)} />
+        <input placeholder="العنوان" value={newRestaurantAddress} onChange={(e) => setNewRestaurantAddress(e.target.value)} />
         <select value={newRestaurantCategory} onChange={(e) => setNewRestaurantCategory(e.target.value as RestaurantCategory)} aria-label="تصنيف المطعم">
           {(Object.keys(RESTAURANT_CATEGORY_LABELS) as RestaurantCategory[]).map((c) => (
             <option key={c} value={c}>{RESTAURANT_CATEGORY_LABELS[c]}</option>
@@ -3969,9 +3942,9 @@ export default function App() {
           <br />★ {p.ratingAvg} ({p.ratingCount} تقييم) — سجّل: {p.createdAt ? fmtTime(p.createdAt) : 'قبل v30 — التاريخ مش معروف'}
         </div>
       ))}
-      <h3><span className="icon-chip sm"><IconBell /></span>قايمة انتظار التوسع 🔔</h3>
-      <p className="muted">عملاء من برّه كفر حكيم وكرداسة وأبو رواش سابوا أرقامهم عشان نبلغهم لما نفتح عندهم: {state.waitlist.length}</p>
-      {state.waitlist.length === 0 && <p>مفيش حد مستني التوسع لسه.</p>}
+      <h3><span className="icon-chip sm"><IconBell /></span>قايمة انتظار 🔔</h3>
+      <p className="muted">أرقام سابها عملاء عشان نبلغهم (قايمة قديمة من قبل التوسع): {state.waitlist.length}</p>
+      {state.waitlist.length === 0 && <p>مفيش حد في القايمة.</p>}
       {[...state.waitlist].sort((a, b) => b.createdAt - a.createdAt).map((w) => (
         <div key={w.id} className="ride">
           {w.name} ({w.code}) — <a className="phone-chip" href={`tel:${w.phone}`}><IconPhone /> {w.phone}</a>
@@ -4052,7 +4025,7 @@ export default function App() {
         <div className="auth-steps"><i className="on" /><i /><b>1 من 2</b></div>
       </div>
       <div className="auth-body">
-        <img src={logoUrl} alt="دليفري كفر حكيم" className="auth-mini-logo" />
+        <img src={logoUrl} alt="اطلبنا" className="auth-mini-logo" />
         <h2 className="auth-title">رقم تليفونك؟</h2>
         <p className="auth-sub">هنبعتلك كود تحقق في رسالة SMS على رقمك — اكتبه صح عشان تدخل {appRole === 'driver' ? 'ككابتن' : 'كعميل'}.</p>
         <div className="phone-field">
@@ -4074,7 +4047,7 @@ export default function App() {
         <div className="auth-steps"><i className="on" /><i className="on" /><b>2 من 2</b></div>
       </div>
       <div className="auth-body">
-        <img src={logoUrl} alt="دليفري كفر حكيم" className="auth-mini-logo" />
+        <img src={logoUrl} alt="اطلبنا" className="auth-mini-logo" />
         <h2 className="auth-title">اكتب الكود</h2>
         <p className="auth-sub">الكود اتبعت في رسالة SMS — اكتب الـ 6 أرقام اللي وصلوك.</p>
         <p className="auth-phone-line">{regPhone}</p>
@@ -4228,26 +4201,11 @@ export default function App() {
     <div className="notice-overlay" onClick={dismissUpdate}>
       <div className="notice-modal" onClick={(e) => e.stopPropagation()}>
         <div className="notice-icon">⬆</div>
-        <p>في إصدار جديد من دليفري كفر حكيم (v{availableUpdate.version}) — حدّث التطبيق عشان تشوف آخر المميزات والتحسينات.</p>
+        <p>في إصدار جديد من اطلبنا (v{availableUpdate.version}) — حدّث التطبيق عشان تشوف آخر المميزات والتحسينات.</p>
         {updateError && <p className="muted">{updateError}</p>}
         <div className="row">
           <button className="btn" disabled={updateBusy} onClick={() => installUpdate(availableUpdate.apkUrl, availableUpdate.sha256)}>{updateBusy ? (updateProgress > 0 ? `بيحمّل التحديث… ${updateProgress}%` : 'بيحمّل التحديث…') : 'حدّث دلوقتي ⬇'}</button>
           <button className="btn small" onClick={dismissUpdate}>بعدين</button>
-        </div>
-      </div>
-    </div>
-  ) : null
-  // مودال برّه النطاق — رسالة أحسن من الرفض العادي: توضيح النطاق + زر «بلّغني»
-  const outOfAreaModal = outOfArea ? (
-    <div className="notice-overlay" onClick={() => setOutOfArea(null)}>
-      <div className="notice-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="notice-icon">!</div>
-        <p><b>{OUT_OF_AREA_TITLE}</b></p>
-        <p>{OUT_OF_AREA_MESSAGE}</p>
-        <p className="muted">من: {outOfArea.pickupLabel} — إلى: {outOfArea.destLabel}</p>
-        <div className="row">
-          <button className="btn" onClick={notifyMe}>🔔 بلّغني لما توصلوا</button>
-          <button className="btn small" onClick={() => setOutOfArea(null)}>تمام</button>
         </div>
       </div>
     </div>
@@ -4258,7 +4216,7 @@ export default function App() {
       <div className="notice-modal" onClick={(e) => e.stopPropagation()}>
         <div className="notice-icon">⏳</div>
         <p><b>لسه ما اشتغلناش ⏳</b></p>
-        <p>بنجمع {launch.driversTarget} كابتن الأول وبعدها هنبدأ الشغل في كفر حكيم وكرداسة وأبو رواش — سجّل رقمك وهنبعتلك أول ما نبدأ.</p>
+        <p>بنجمع {launch.driversTarget} كابتن الأول وبعدها هنبدأ الشغل — سجّل رقمك وهنبعتلك أول ما نبدأ.</p>
         <div className="row">
           <button className="btn" onClick={notifyLaunch}>🔔 بلّغني لما نبدأ</button>
           <button className="btn small" onClick={() => setLaunchGate(false)}>تمام</button>
@@ -4271,8 +4229,8 @@ export default function App() {
       return (
         <div className="auth-screen" dir="rtl">
           <div className="auth-hero">
-            <img src={logoUrl} alt="دليفري كفر حكيم" className="auth-hero-logo" />
-            <h1 className="auth-hero-title">دليفري كفر حكيم</h1>
+            <img src={logoUrl} alt="اطلبنا" className="auth-hero-logo" />
+            <h1 className="auth-hero-title">اطلبنا</h1>
             <p className="auth-hero-slogan">توصيل ركاب وطلبات.. من أي مكان!</p>
             <div className="auth-svc-strip">
               <span>🛺 توكتوك</span>
@@ -4281,7 +4239,7 @@ export default function App() {
               <span>🍽️ مطاعم</span>
             </div>
             <div className="auth-sheet">
-              <h2>أهلاً بيك في كفر حكيم</h2>
+              <h2>أهلاً بيك في اطلبنا</h2>
               <p className="muted auth-sub">اختار هتستخدم التطبيق إزاي</p>
               <div className="role-tiles">
                 <button className="role-tile" onClick={() => chooseRole('passenger')}>
@@ -4295,7 +4253,7 @@ export default function App() {
                   <span>اشتغل بتوكتوك أو موتوسيكل واكسب من كل مشوار</span>
                 </button>
               </div>
-              <p className="muted auth-ver">دليفري كفر حكيم — الإصدار {APP_VERSION} — كفر حكيم • كرداسة • أبو رواش</p>
+              <p className="muted auth-ver">اطلبنا — الإصدار {APP_VERSION} — مشاوير • دليفري • مطاعم</p>
             </div>
           </div>
           {noticeModal}
@@ -4322,7 +4280,6 @@ export default function App() {
       {inCallModal}
       {lightboxModal}
       {updateModal}
-      {outOfAreaModal}
       {launchGateModal}
       {role === 'passenger' && passengerView}
       {role === 'myRequests' && passengerTripsView}
@@ -4345,7 +4302,7 @@ export default function App() {
             <button className="btn small soft" onClick={() => chooseRole('passenger')}><IconSwap /> تبديل — أنا راكب</button>
           </div>
         )}
-        <p className="muted">دليفري كفر حكيم — com.delivery.kafrhakim — نسخة مستقلة (Capacitor + Firebase) — الإصدار {APP_VERSION}</p>
+        <p className="muted">اطلبنا — com.delivery.kafrhakim — نسخة مستقلة (Capacitor + Firebase) — الإصدار {APP_VERSION}</p>
       </footer>
     </div>
   )

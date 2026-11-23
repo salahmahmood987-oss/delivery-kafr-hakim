@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { LatLng } from './types'
+import { DEFAULT_CENTER } from './geo'
 
 export type MapMode = 'pickup' | 'destination' | 'view'
 
@@ -18,8 +19,6 @@ interface MapViewProps {
   height?: number | string
 }
 
-// كفر حكيم كبداية افتراضية (30.08477، 31.11921)
-const CAIRO: [number, number] = [30.08477, 31.11921]
 
 // دبوس خريطة عصري على شكل قطرة — بدون إيموجي
 function pinIcon(color: string): L.DivIcon {
@@ -59,7 +58,7 @@ export default function MapView({
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
-    const map = L.map(containerRef.current).setView(CAIRO, 14)
+    const map = L.map(containerRef.current).setView(DEFAULT_CENTER, 14)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap',
       maxZoom: 19,

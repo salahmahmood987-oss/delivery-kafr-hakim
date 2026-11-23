@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'com.delivery.kafrhakim',
-  appName: 'دليفري كفر حكيم',
+  appName: 'اطلبنا',
   webDir: 'dist',
   backgroundColor: '#0B2B4B',
   android: {
