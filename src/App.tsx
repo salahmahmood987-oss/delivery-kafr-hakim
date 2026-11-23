@@ -646,15 +646,32 @@ export default function App() {
   const deliveryKm = pickup && destination ? Math.ceil(distanceKm(pickup, destination)) : 0
   const deliveryFare = Math.max(FARE_MIN, Math.min(FARE_MAX, deliveryBaseFee + deliveryPerKm * deliveryKm))
 
+  // (v16) السعر المقترح للمشوار — زي إن درايف: قاعدة + سعر الكيلو × المسافة
+  // (بالكيلو الحقيقي، مش المقرب — 3.2 كم تتحسب 3.2). الأدمن يغيّر القاعدة
+  // وسعر الكيلو من لوحة الإدارة (افتراضي 10 و5). المشاوير تفضل تفاوضية:
+  // المقترح مجرد بداية، والعميل يزود أو ينقص زي ما هو عايز.
+  const restaurantRadiusKm = state.admin.restaurantRadiusKm ?? 7
+  const suggestedBaseFare = state.admin.suggestedBaseFare ?? 10
+  const suggestedPerKm = state.admin.suggestedPerKm ?? 5
+  const rideKm = pickup && destination && (serviceKind === 'ride_tuktuk' || serviceKind === 'ride_motorcycle')
+    ? distanceKm(pickup, destination) : 0
+  const suggestedFare = Math.max(FARE_MIN, Math.min(FARE_MAX, Math.round(suggestedBaseFare + suggestedPerKm * rideKm)))
+
   // (v2) السعر الافتراضي من إعدادات الأدمن (فتحة العداد حسب نوع الخدمة) —
   // بيتحدث لما الإعدادات توصل من السيرفر، بس لو العميل لسه معدلش السعر بنفسه.
   const fareTouchedRef = useRef(false)
   const baseFareFor = (kind: ServiceKind): number =>
     kind === 'ride_tuktuk' ? state.admin.tuktukBaseFare : kind === 'restaurant' ? state.admin.deliveryFee : state.admin.motorcycleBaseFare
   useEffect(() => {
-    if (!fareTouchedRef.current) setFareText(String(baseFareFor(serviceKind)))
+    if (fareTouchedRef.current) return
+    // (v16) لو نقطتين المشوار متحددين، السعر الافتراضي هو السعر المقترح — زي إن درايف
+    if ((serviceKind === 'ride_tuktuk' || serviceKind === 'ride_motorcycle') && pickup && destination) {
+      setFareText(String(suggestedFare))
+    } else {
+      setFareText(String(baseFareFor(serviceKind)))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.admin, serviceKind])
+  }, [state.admin, serviceKind, pickup, destination])
 
   // (v48) الرحلة النشطة بتاعة العميل ده بس — قبل كده أي راكب كان بيشوف
   // رحلة أي راكب تاني ويقدر يلغيها ويغيّر سعرها، ومكانش يعرف يطلب أصلاً.
@@ -2488,7 +2505,17 @@ export default function App() {
   // المطاعم المعتمدة اللي العميل يشوفها + المطاعم اللي العميل ده صاحبها
   const approvedRestaurants = state.restaurants.filter((r) => r.approved)
   // (v2) فلترة المطاعم حسب التصنيف عند العميل
-  const filteredRestaurants = restaurantCategoryFilter === 'all' ? approvedRestaurants : approvedRestaurants.filter((r) => r.category === restaurantCategoryFilter)
+  // (v16) المطاعم القريبة بس — زي طلبات: المطعم يظهر لو جوّه النطاق من مكان
+  // العميل (عنوان التوصيل لو متحدد، وإلا نقطة الركوب)، أو لو لسه محددش موقعه
+  // (بنظهره عشان الطلب ميتعطلش)، أو لو العميل لسه محددش مكانه.
+  const customerLoc = destination ?? pickup
+  const restaurantDistanceKm = (r: Restaurant): number | null =>
+    r.lat != null && r.lng != null && customerLoc ? distanceKm(customerLoc, { lat: r.lat, lng: r.lng }) : null
+  const nearbyRestaurants = approvedRestaurants.filter((r) => {
+    const d = restaurantDistanceKm(r)
+    return d == null || d <= restaurantRadiusKm
+  })
+  const filteredRestaurants = restaurantCategoryFilter === 'all' ? nearbyRestaurants : nearbyRestaurants.filter((r) => r.category === restaurantCategoryFilter)
   // (v9) رقم صاحب المطعم ممكن يتسجل خام (0155...) من لوحة الإدارة،
   // بينما رقم الدخول E.164 (+20...) — نقارن بعد التطبيع من الطرفين،
   // والرقم ييجي من ملف الراكب أو الكابتن (أيهما موجود) عشان التبويب
@@ -2632,23 +2659,30 @@ export default function App() {
   }
 
   /** بطاقة مطعم واحدة (v6) — بتتستخدم في الرئيسية (معاينة) وفي تبويب المطاعم */
-  const restaurantRow = (r: Restaurant) => (
-    <button key={r.id} type="button" className="kh-rest-card" onClick={() => { setSelectedRestaurantId(r.id); setCart({}); setMenuModalOpen(true) }}>
-      {r.photoUrl ? <img src={r.photoUrl} alt={r.name} className="kh-rest-thumb" /> : <span className="kh-rest-ic">{r.category === 'pharmacy' ? '💊' : r.category === 'grill' ? '🥩' : r.category === 'pizza' ? '🍕' : r.category === 'ful' ? '🧆' : '🍽️'}</span>}
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <b>{r.name}</b>
-        <span className="muted">{r.address} — {RESTAURANT_CATEGORY_LABELS[r.category]}</span>
-        {r.description ? <><br /><span className="muted">{r.description}</span></> : null}
-      </span>
-      <span className="kh-rest-new">شوف المنيو ←</span>
-    </button>
-  )
+  const restaurantRow = (r: Restaurant) => {
+    const d = restaurantDistanceKm(r)
+    return (
+      <button key={r.id} type="button" className="kh-rest-card" onClick={() => { setSelectedRestaurantId(r.id); setCart({}); setMenuModalOpen(true) }}>
+        {r.photoUrl ? <img src={r.photoUrl} alt={r.name} className="kh-rest-thumb" /> : <span className="kh-rest-ic">{r.category === 'pharmacy' ? '💊' : r.category === 'grill' ? '🥩' : r.category === 'pizza' ? '🍕' : r.category === 'ful' ? '🧆' : '🍽️'}</span>}
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <b>{r.name}</b>
+          <span className="muted">{r.address} — {RESTAURANT_CATEGORY_LABELS[r.category]}</span>
+          {d != null ? <><br /><span className="muted">📍 على بعد {d.toFixed(1)} كم منك</span></> : null}
+          {r.description ? <><br /><span className="muted">{r.description}</span></> : null}
+        </span>
+        <span className="kh-rest-new">شوف المنيو ←</span>
+      </button>
+    )
+  }
 
   /** قايمة المطاعم (v6 — تبويب المطاعم) — شرايح التصنيف + الكروت، والمنيو بيتفتح في مودال */
   const restaurantList = (
     <div>
       <h3>🍽️ المطاعم والمحلات المتاحة</h3>
       <p className="muted">تحدث فوراً مع لوحة الإدارة ⚡</p>
+      {customerLoc
+        ? <p className="muted">📍 بنعرضلك المطاعم اللي على بعد {restaurantRadiusKm} كم من مكانك أو أقل.</p>
+        : <p className="muted">📍 حدد عنوان التوصيل أو نقطة الركوب عشان تشوف أقرب المطاعم ليك.</p>}
       <div className="kh-chips">
         <button type="button" className={restaurantCategoryFilter === 'all' ? 'kh-chip active' : 'kh-chip'} onClick={() => setRestaurantCategoryFilter('all')}>الكل</button>
         {(Object.keys(RESTAURANT_CATEGORY_LABELS) as RestaurantCategory[]).map((c) => (
@@ -2656,7 +2690,8 @@ export default function App() {
         ))}
       </div>
       {approvedRestaurants.length === 0 && <p className="muted">لسه مفيش مطاعم متعاقد معاها — الأدمن بيضيف المطاعم من لوحة الإدارة.</p>}
-      {approvedRestaurants.length > 0 && filteredRestaurants.length === 0 && <p className="muted">مفيش مطاعم في التصنيف ده لسه.</p>}
+      {approvedRestaurants.length > 0 && nearbyRestaurants.length === 0 && <p className="muted">مفيش مطاعم قريبة من مكانك دلوقتي — جرّب تغيّر عنوان التوصيل.</p>}
+      {approvedRestaurants.length > 0 && nearbyRestaurants.length > 0 && filteredRestaurants.length === 0 && <p className="muted">مفيش مطاعم في التصنيف ده لسه.</p>}
       {filteredRestaurants.map((r) => restaurantRow(r))}
     </div>
   )
@@ -3139,7 +3174,8 @@ export default function App() {
                 <button type="button" onClick={() => setCustTab('food')}>عرض الكل ←</button>
               </div>
               {approvedRestaurants.length === 0 && <p className="muted">لسه مفيش مطاعم متعاقد معاها — الأدمن بيضيف المطاعم من لوحة الإدارة.</p>}
-              {approvedRestaurants.slice(0, 3).map((r) => restaurantRow(r))}
+              {approvedRestaurants.length > 0 && nearbyRestaurants.length === 0 && <p className="muted">مفيش مطاعم قريبة من مكانك دلوقتي.</p>}
+              {nearbyRestaurants.slice(0, 3).map((r) => restaurantRow(r))}
             </>
           )}
           {custTab === 'rides' && (
@@ -3233,6 +3269,11 @@ export default function App() {
             <button className="stepper-btn" onClick={() => { fareTouchedRef.current = true; setFareText(String(Math.min(FARE_MAX, fare + 5))) }}>+</button>
           </div>
           <p className="muted">من {FARE_MIN} لـ {FARE_MAX} جنيه — دوس على الرقم نفسه وعدّله.</p>
+          {(serviceKind === 'ride_tuktuk' || serviceKind === 'ride_motorcycle') && pickup && destination && (
+            <button type="button" className="kh-chip" style={{ margin: '8px 0' }} onClick={() => { fareTouchedRef.current = true; setFareText(String(suggestedFare)) }}>
+              💡 السعر المقترح لمشوارك ({rideKm.toFixed(1)} كم): {suggestedFare} جنيه — دوس هنا تحطه
+            </button>
+          )}
           <button className="btn big" onClick={requestRide} disabled={requestBusy}>{requestBusy ? 'بيحدد الأماكن…' : <><IconPin /> {serviceKind === 'ride_motorcycle' ? 'اطلب موتوسيكل' : 'اطلب توكتوك'} — {money(fare)}</>}</button>
           </div>
             </>
@@ -3565,6 +3606,9 @@ export default function App() {
       deliveryFee: Math.max(0, Math.min(FARE_MAX, a.deliveryFee || 8)),
       deliveryBaseFee: Math.max(0, Math.min(FARE_MAX, a.deliveryBaseFee || 15)),
       deliveryPerKm: Math.max(0, Math.min(FARE_MAX, a.deliveryPerKm || 5)),
+      restaurantRadiusKm: Math.max(1, Math.min(50, a.restaurantRadiusKm || 7)),
+      suggestedBaseFare: Math.max(0, Math.min(FARE_MAX, a.suggestedBaseFare ?? 10)),
+      suggestedPerKm: Math.max(0, Math.min(FARE_MAX, a.suggestedPerKm ?? 5)),
     }
     update({ admin: clamped })
     void saveAdminSettings(clamped)
@@ -3772,6 +3816,18 @@ export default function App() {
         <div>
           <label>أجرة الدليفري — جنيه لكل كيلومتر</label>
           <input inputMode="numeric" value={String(state.admin.deliveryPerKm ?? 5)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, deliveryPerKm: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>نطاق عرض المطاعم (كيلومتر) — العميل يشوف بس المطاعم اللي جوّه النطاق ده من مكانه</label>
+          <input inputMode="numeric" value={String(state.admin.restaurantRadiusKm ?? 7)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, restaurantRadiusKm: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>السعر المقترح للمشاوير — القاعدة الثابتة (جنيه)</label>
+          <input inputMode="numeric" value={String(state.admin.suggestedBaseFare ?? 10)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, suggestedBaseFare: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+        </div>
+        <div>
+          <label>السعر المقترح للمشاوير — جنيه لكل كيلومتر</label>
+          <input inputMode="numeric" value={String(state.admin.suggestedPerKm ?? 5)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, suggestedPerKm: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
         </div>
       </div>
       <button className="btn small" onClick={saveAdminPricing}><IconCheck /> حفظ الأسعار والعمولات</button>
