@@ -109,7 +109,7 @@ export function defaultState(): AppState {
     restaurants: [],
     menuItems: [],
     restaurantOrders: [],
-    admin: { walletNumber: '', walletName: '', tuktukBaseFare: 15, motorcycleBaseFare: 20, rideCommissionRate: 0.05, restaurantCommissionRate: 0.1, deliveryFee: 8, deliveryBaseFee: 15, deliveryPerKm: 5, restaurantRadiusKm: 7, suggestedBaseFare: 10, suggestedPerKm: 5 },
+    admin: { walletNumber: '', walletName: '', tuktukBaseFare: 15, motorcycleBaseFare: 20, rideCommissionRate: 0.05, restaurantCommissionRate: 0.1, deliveryFee: 8, deliveryBaseFee: 15, deliveryPerKm: 5, restaurantRadiusKm: 10, suggestedBaseFare: 10, suggestedPerKm: 5 },
     lastOrderNum: 1000,
     lastDriverNum: 1001,
   }

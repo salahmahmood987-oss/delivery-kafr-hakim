@@ -650,7 +650,7 @@ export default function App() {
   // (بالكيلو الحقيقي، مش المقرب — 3.2 كم تتحسب 3.2). الأدمن يغيّر القاعدة
   // وسعر الكيلو من لوحة الإدارة (افتراضي 10 و5). المشاوير تفضل تفاوضية:
   // المقترح مجرد بداية، والعميل يزود أو ينقص زي ما هو عايز.
-  const restaurantRadiusKm = state.admin.restaurantRadiusKm ?? 7
+  const restaurantRadiusKm = state.admin.restaurantRadiusKm ?? 10
   const suggestedBaseFare = state.admin.suggestedBaseFare ?? 10
   const suggestedPerKm = state.admin.suggestedPerKm ?? 5
   const rideKm = pickup && destination && (serviceKind === 'ride_tuktuk' || serviceKind === 'ride_motorcycle')
@@ -3606,7 +3606,7 @@ export default function App() {
       deliveryFee: Math.max(0, Math.min(FARE_MAX, a.deliveryFee || 8)),
       deliveryBaseFee: Math.max(0, Math.min(FARE_MAX, a.deliveryBaseFee || 15)),
       deliveryPerKm: Math.max(0, Math.min(FARE_MAX, a.deliveryPerKm || 5)),
-      restaurantRadiusKm: Math.max(1, Math.min(50, a.restaurantRadiusKm || 7)),
+      restaurantRadiusKm: Math.max(1, Math.min(50, a.restaurantRadiusKm || 10)),
       suggestedBaseFare: Math.max(0, Math.min(FARE_MAX, a.suggestedBaseFare ?? 10)),
       suggestedPerKm: Math.max(0, Math.min(FARE_MAX, a.suggestedPerKm ?? 5)),
     }
@@ -3819,7 +3819,7 @@ export default function App() {
         </div>
         <div>
           <label>نطاق عرض المطاعم (كيلومتر) — العميل يشوف بس المطاعم اللي جوّه النطاق ده من مكانه</label>
-          <input inputMode="numeric" value={String(state.admin.restaurantRadiusKm ?? 7)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, restaurantRadiusKm: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
+          <input inputMode="numeric" value={String(state.admin.restaurantRadiusKm ?? 10)} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ''); update({ admin: { ...state.admin, restaurantRadiusKm: v === '' ? 0 : parseInt(v, 10) } }) }} onBlur={saveAdminPricing} />
         </div>
         <div>
           <label>السعر المقترح للمشاوير — القاعدة الثابتة (جنيه)</label>
